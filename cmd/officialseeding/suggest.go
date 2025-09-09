@@ -2,28 +2,27 @@ package officialseeding
 
 import (
     prompt "github.com/c-bata/go-prompt"
+
     "github.com/sagan/ptool/cmd"
-    "github.com/sagan/ptool/config"
+    "github.com/sagan/ptool/cmd/shell/suggest"
 )
 
 func init() {
     cmd.AddShellCompletion("officialseeding", func(document *prompt.Document) []prompt.Suggest {
-        text := document.GetWordBeforeCursorWithSpace()
-        words := cmd.SplitAndTrim(text)
-        if len(words) >= 3 { // cmd + client + site
-            return []prompt.Suggest{}
+        info := suggest.Parse(document)
+        if info.LastArgIndex < 1 {
+            return nil
         }
-        suggests := []prompt.Suggest{}
-        if len(words) < 2 {
-            for _, client := range config.Get().ClientsEnabled {
-                suggests = append(suggests, prompt.Suggest{Text: client.Name, Description: client.Url})
-            }
-        } else {
-            for _, site := range config.Get().SitesEnabled {
-                suggests = append(suggests, prompt.Suggest{Text: site.GetName(), Description: site.Url})
-            }
+        if info.LastArgIsFlag {
+            return nil
         }
-        return cmd.FilterByPrefixOrContains(suggests, text)
+        switch info.LastArgIndex {
+        case 1:
+            return suggest.ClientArg(info.MatchingPrefix)
+        case 2:
+            return suggest.SiteArg(info.MatchingPrefix)
+        default:
+            return nil
+        }
     })
 }
-
