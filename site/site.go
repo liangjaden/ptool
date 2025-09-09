@@ -47,7 +47,9 @@ type Torrent struct {
 	Paid               bool     // "付费"种子: (第一次)下载或汇报种子时扣除魔力/积分
 	Bought             bool     // 适用于付费种子：已购买
 	Neutral            bool     // 中性种子：不计算上传、下载、做种魔力
-	Tags               []string // labels, e.g. category and other meta infos.
+    Tags               []string // labels, e.g. category and other meta infos.
+    // 非站点字段：用于官方保种在添加时记录当时做种人数（便于后续按“原始做种人数”优先级删除）
+    SeedersAtAdd       int64
 }
 
 type Status struct {

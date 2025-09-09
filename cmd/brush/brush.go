@@ -113,17 +113,39 @@ func brush(cmd *cobra.Command, args []string) (err error) {
 			log.Printf("Failed to get client %s torrents: %v ", clientInstance.GetName(), err)
 			continue
 		}
-		brushSiteOption := strategy.GetBrushSiteOptions(siteInstance, util.Now())
-		brushMaxTorrents := clientInstance.GetClientConfig().BrushMaxTorrents
-		if siteInstance.GetSiteConfig().BrushAllowAddTorrentsPercent != 0 {
-			p := float64(siteInstance.GetSiteConfig().BrushAllowAddTorrentsPercent) / 100.0
-			brushMaxTorrents = int64(p * float64(clientInstance.GetClientConfig().BrushMaxTorrents))
-		}
+	brushSiteOption := strategy.GetBrushSiteOptions(siteInstance, util.Now())
+	brushMaxTorrents := clientInstance.GetClientConfig().BrushMaxTorrents
+	if siteInstance.GetSiteConfig().BrushAllowAddTorrentsPercent != 0 {
+		p := float64(siteInstance.GetSiteConfig().BrushAllowAddTorrentsPercent) / 100.0
+		brushMaxTorrents = int64(p * float64(clientInstance.GetClientConfig().BrushMaxTorrents))
+	}
 
-		currentTorrents := len(getTorrentsOfSite(clientTorrents, sitename))
-		brushSiteOption.AllowAddTorrents = brushMaxTorrents - int64(currentTorrents)
-		log.Printf("Site %s already have %d torrents, max %d, allow %d", sitename,
-			len(getTorrentsOfSite(clientTorrents, sitename)), brushMaxTorrents, brushSiteOption.AllowAddTorrents)
+	currentSiteTorrents := getTorrentsOfSite(clientTorrents, sitename)
+	currentTorrents := len(currentSiteTorrents)
+	brushSiteOption.AllowAddTorrents = brushMaxTorrents - int64(currentTorrents)
+	// Enforce per-site disk quota if configured
+    if siteInstance.GetSiteConfig().BrushMaxDiskSizeValue > 0 {
+        var siteTotalSize int64
+        for _, t := range currentSiteTorrents {
+            // Use total selected size to reflect disk occupancy/reservation
+            siteTotalSize += t.Size
+        }
+        if siteTotalSize >= siteInstance.GetSiteConfig().BrushMaxDiskSizeValue {
+            log.Printf("Site %s brush size %s reached limit %s; will remove slow torrents to add better ones",
+                sitename,
+                util.BytesSize(float64(siteTotalSize)),
+                util.BytesSize(float64(siteInstance.GetSiteConfig().BrushMaxDiskSizeValue)))
+        }
+        log.Printf("Site %s brush size %s / %s (%.0f%%). Torrents: %d / %d, allow %d",
+            sitename,
+            util.BytesSize(float64(siteTotalSize)),
+            util.BytesSize(float64(siteInstance.GetSiteConfig().BrushMaxDiskSizeValue)),
+            float64(siteTotalSize)*100/float64(siteInstance.GetSiteConfig().BrushMaxDiskSizeValue),
+            currentTorrents, brushMaxTorrents, brushSiteOption.AllowAddTorrents)
+    } else {
+        log.Printf("Site %s already have %d torrents, max %d, allow %d", sitename,
+            currentTorrents, brushMaxTorrents, brushSiteOption.AllowAddTorrents)
+    }
 		brushClientOption := strategy.GetBrushClientOptions(clientInstance)
 		log.Printf(
 			"Brush Options: minDiskSpace=%v, slowUploadSpeedTier=%v, torrentUploadSpeedLimit=%v/s,"+

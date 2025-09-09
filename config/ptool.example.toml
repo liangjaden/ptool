@@ -63,12 +63,18 @@ cookie = 'cookie_here'
 #torrentUploadSpeedLimit = '10MiB' # 站点单个种子上传速度限制(/s)
 #brushTorrentMinSizeLimit = '0' # 刷流：种子最小体积限制。体积小于此值的种子不会被选择
 #brushTorrentMaxSizeLimit = '1PiB' # 刷流：种子最大体积限制。体积大于此值的种子不会被选择
+#brushMaxDiskSize = '' # 刷流：限制该站点刷流种子占用的磁盘空间上限。示例 '10TiB'。留空表示不限制
 #brushAllowNoneFree = false # 是否允许使用非免费种子刷流
 #brushAllowPaid = false # 是否允许使用'付费'种子刷流（付费种子：第一次下载或汇报时需要扣除积分）
 #brushAllowHr = false # 是否允许使用HR种子刷流。程序不会特意保证HR种子的做种时长，所以仅当你的账户无视HR(如VIP)时开启此选项
 #brushAllowZeroSeeders = false # 是否允许刷流任务添加当前0做种的种子到客户端
 #brushExcludes = [] # 排除种子关键字列表。标题或副标题包含列表中任意项的种子不会被刷流任务选择
 #brushAcceptAnyFree = false # 如果种子是免费的，则上传人数下载人数比和发布种子时间rtime的规则不限制
+# 官方保种（officialseeding）示例配置（以 NexusPHP 为例，如 hhanclub 的 rescue.php）：
+#officialSeedingSize = '5TiB' # 官方保种使用硬盘空间，与站点刷流/动态保种空间互不冲突
+#officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
+#officialSeedingTorrentsUrl = 'https://hhanclub.top/rescue.php' # 站点官方保种页面
+#officialSeedingMember = 5 # 列表中做种人数小于等于该值的视为候选，优先下载做种人数更少的；大于该值时无奖励（以添加时做种人数为准）
 #timezone = 'Asia/Shanghai' # 网站页面显示时间的时区
 
 # 新版 m-team (馒头) 不支持 Cookie。必须使用 token 鉴权。两种方法选择其一：

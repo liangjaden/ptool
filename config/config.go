@@ -29,6 +29,7 @@ const (
 	SEEDING_CAT                = "_seeding"
 	FALLBACK_CAT               = "Others" // --add-category-auto fallback category if does NOT match with any site
 	DYNAMIC_SEEDING_CAT_PREFIX = "dynamic-seeding-"
+	OFFICIAL_SEEDING_CAT_PREFIX = "official-seeding-"
 	XSEED_TAG                  = "_xseed"
 	NOADD_TAG                  = "_noadd"
 	NODEL_TAG                  = "_nodel"
@@ -147,6 +148,13 @@ type SiteConfigStruct struct {
 	DynamicSeedingMinSeeders       int64      `yaml:"dynamicSeedingMinSeeders"`
 	DynamicSeedingMaxSeeders       int64      `yaml:"dynamicSeedingMaxSeeders"`
 	DynamicSeedingReplaceSeeders   int64      `yaml:"dynamicSeedingReplaceSeeders"`
+
+	// Official seeding configs
+	OfficialSeedingTorrentsUrl    string `yaml:"officialSeedingTorrentsUrl"`
+	OfficialSeedingSize           string `yaml:"officialSeedingSize"`
+	OfficialSeedingTorrentMaxSize string `yaml:"officialSeedingTorrentMaxSize"`
+	OfficialSeedingTorrentMinSize string `yaml:"officialSeedingTorrentMinSize"`
+	OfficialSeedingMember         int64  `yaml:"officialSeedingMember"`
 	SearchQueryVariable            string     `yaml:"searchQueryVariable"`
 	TorrentsExtraUrls              []string   `yaml:"torrentsExtraUrls"`
 	Cookie                         string     `yaml:"cookie"`
@@ -170,7 +178,9 @@ type SiteConfigStruct struct {
 	BrushAllowZeroSeeders          bool       `yaml:"brushAllowZeroSeeders"`
 	BrushExcludes                  []string   `yaml:"brushExcludes"`
 	BrushExcludeTags               []string   `yaml:"brushExcludeTags"`
-	BrushAcceptAnyFree             bool       `yaml:"brushAcceptAnyFree"`
+    BrushAcceptAnyFree             bool       `yaml:"brushAcceptAnyFree"`
+    // Limit total disk size occupied by this site's brush torrents. Empty => no limit
+    BrushMaxDiskSize               string     `yaml:"brushMaxDiskSize"`
 	SelectorTorrentsListHeader     string     `yaml:"selectorTorrentsListHeader"`
 	SelectorTorrentsList           string     `yaml:"selectorTorrentsList"`
 	SelectorTorrentBlock           string     `yaml:"selectorTorrentBlock"` // dom block of a torrent in list
@@ -233,11 +243,15 @@ type SiteConfigStruct struct {
 	NoCookie                          bool   `yaml:"noCookie"`            // true: 该站点不使用 cookie 鉴权方式
 	AcceptAnyHttpStatus               bool   `yaml:"acceptAnyHttpStatus"` // true: 非200的http状态不认为是错误
 	TorrentUploadSpeedLimitValue      int64
-	BrushTorrentMinSizeLimitValue     int64
-	BrushTorrentMaxSizeLimitValue     int64
+    BrushTorrentMinSizeLimitValue     int64
+    BrushTorrentMaxSizeLimitValue     int64
+    BrushMaxDiskSizeValue             int64
 	DynamicSeedingSizeValue           int64
 	DynamicSeedingTorrentMinSizeValue int64
 	DynamicSeedingTorrentMaxSizeValue int64
+	OfficialSeedingSizeValue           int64
+	OfficialSeedingTorrentMinSizeValue int64
+	OfficialSeedingTorrentMaxSizeValue int64
 	AutoComment                       string // 自动更新 ptool.toml 时系统生成的 comment。会被写入 Comment 字段
 	BrushAllowAddTorrentsPercent      int    `yaml:"brushAllowAddTorrentsPercent"` // Site种子数量占比(0~100]: ConfigStruct.BrushMaxTorrents; 0 = no limit
 }
@@ -642,6 +656,14 @@ func (siteConfig *SiteConfigStruct) Register() {
 	}
 	siteConfig.BrushTorrentMaxSizeLimitValue = v
 
+	// Parse per-site brush disk max size (optional; empty means no limit)
+	if siteConfig.BrushMaxDiskSize != "" {
+		if v, err = util.RAMInBytes(siteConfig.BrushMaxDiskSize); err != nil || v < 0 {
+			log.Fatalf("Invalid brushMaxDiskSize value %q in site config: %v", siteConfig.BrushMaxDiskSize, err)
+		}
+		siteConfig.BrushMaxDiskSizeValue = v
+	}
+
 	if siteConfig.DynamicSeedingSize != "" {
 		if v, err = util.RAMInBytes(siteConfig.DynamicSeedingSize); err != nil || v < 0 {
 			log.Fatalf("Invalid dynamicSeedingSize value %q in site config: %v", siteConfig.DynamicSeedingSize, err)
@@ -663,6 +685,28 @@ func (siteConfig *SiteConfigStruct) Register() {
 				siteConfig.DynamicSeedingTorrentMinSize, err)
 		}
 		siteConfig.DynamicSeedingTorrentMinSizeValue = v
+	}
+
+	// Official Seeding config parsing
+	if siteConfig.OfficialSeedingSize != "" {
+		if v, err = util.RAMInBytes(siteConfig.OfficialSeedingSize); err != nil || v < 0 {
+			log.Fatalf("Invalid officialSeedingSize value %q in site config: %v", siteConfig.OfficialSeedingSize, err)
+		}
+		siteConfig.OfficialSeedingSizeValue = v
+	}
+	if siteConfig.OfficialSeedingTorrentMaxSize != "" {
+		if v, err = util.RAMInBytes(siteConfig.OfficialSeedingTorrentMaxSize); err != nil {
+			log.Fatalf("Invalid officialSeedingTorrentMaxSize value %q in site config: %v",
+				siteConfig.OfficialSeedingTorrentMaxSize, err)
+		}
+		siteConfig.OfficialSeedingTorrentMaxSizeValue = v
+	}
+	if siteConfig.OfficialSeedingTorrentMinSize != "" {
+		if v, err = util.RAMInBytes(siteConfig.OfficialSeedingTorrentMinSize); err != nil {
+			log.Fatalf("Invalid officialSeedingTorrentMinSize value %q in site config: %v",
+				siteConfig.OfficialSeedingTorrentMinSize, err)
+		}
+		siteConfig.OfficialSeedingTorrentMinSizeValue = v
 	}
 
 	if siteConfig.BrushAllowAddTorrentsPercent < 0 || siteConfig.BrushAllowAddTorrentsPercent > 100 {

@@ -31,7 +31,8 @@ TOC
   - [下载站点的种子](#下载站点的种子)
   - [搜索 PT 站点种子 (search)](#搜索-pt-站点种子-search)
   - [批量下载种子 (batchdl)](#批量下载种子-batchdl)
-  - [全站动态保种 (dynamicseeding) (试验性功能)](#全站动态保种-dynamicseeding-试验性功能)
+- [全站动态保种 (dynamicseeding) (试验性功能)](#全站动态保种-dynamicseeding-试验性功能)
+  - [站点官方保种 (officialseeding)](#站点官方保种-officialseeding)
   - [发布(上传)种子 (publish)](#发布上传种子-publish)
     - [metadata.nfo 元文件](#metadatanfo-元文件)
     - [支持的站点](#支持的站点)
@@ -228,6 +229,7 @@ ptool brush local mteam
 
 - 未下载完成的种子免费时间临近截止时，删除种子或停止下载（只上传模式）。
 - 硬盘剩余可用空间不足（默认保留 5GiB）时，开始删除没有上传速度的种子。
+  - 支持按站点限制刷流占用的磁盘空间：在站点配置中设置 `brushMaxDiskSize`（例如：mteam 配置为 `10TiB`，ilolicon 配置为 `5TiB`）。未配置则不限制；达到上限时会优先自动删除该站点的慢速种，以便添加更优的新种达到刷流目的。
 - 未下载完成的种子，如果长时间没有上传速度或上传/下载速度比例过低，也可能被删除。
 
 刷流任务添加到客户端里的种子会放到 `_brush` 分类(category)里。程序只会对这个分类里的种子进行管理或删除等操作。不会干扰 BT 客户端里其它正常的下载任务。如果需要永久保留某个刷流任务添加的种子（防止其被自动删除），在 BT 客户端里更改其分类即可。
@@ -1140,3 +1142,36 @@ ptool 会在访问站点时自动模拟浏览器环境（类似 [curl-impersonat
 [rclone]: https://github.com/rclone/rclone
 [rclone lsjson]: https://rclone.org/commands/rclone_lsjson/
 [松鼠党]: https://www.reddit.com/r/DataHoarder/
+## 站点官方保种 (officialseeding)
+
+ptool officialseeding {client} {site}
+
+officialseeding 命令自动从指定站点下载亟需保种的种子并做种。
+
+首先在 ptool.toml 配置文件里设置对于指定站点允许使用多少硬盘空间进行官方保种（以 hhanclub NexusPHP 为例）：
+
+```
+[[sites]]
+type = 'hh'
+cookie = '...'
+officialSeedingSize = '5TiB' # 官方保种使用硬盘空间，与站点刷流/动态保种空间不冲突
+officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
+officialSeedingTorrentsUrl = 'https://hhanclub.top/rescue.php' # 站点官方保种页面
+officialSeedingMember = 5 # 官方保种列表中做种人数阈值（≤5 有奖励），并按做种人数少优先
+```
+
+然后定期运行以下命令即可，参数分别为官方保种使用的 BT 客户端、站点名：
+
+```
+ptool officialseeding local kamept
+```
+
+“官方保种”功能详细说明：
+
+- 如果“可用空间”（可用空间为 officialSeedingSize 减去 BT 客户端里当前该站点所有官方保种种子大小之和）有空余，程序会从站点官方保种页面下载符合条件的种子并做种。
+- 默认仅会下载免费并且没有 HR 的种子。
+- 官方保种的种子会放到 qBittorrent 的 `official-seeding-<sitename>` 分类里，并且打上 `site:<sitename>` 标签。
+- 如果“可用空间”不足并且有新的亟需保种的种子，程序会删除 BT 客户端里该站点的官方保种种子里“原始做种人数最多”的种子，以腾出空间下载新的种子。对于站点已经删除的种子，程序也会从 BT 客户端里删除。
+- 对于 BT 客户端里正在做种的官方保种种子，如果其当前做种人数 < 4，程序在任何情况下都不会自动删除该种子（即使“可用空间”不足）。
+- 程序也不会自动删除含有 `nodel` 标签的官方保种种子。
+- 用户自行下载的种子，也可以将其放到 `official-seeding-<sitename>` 分类并打上 `site:<sitename>` 标签，以允许官方保种功能对其进行管理并在需要时删除其以腾出空间下载新的种子（注意分类和标签两者都必须设置）。

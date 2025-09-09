@@ -31,18 +31,21 @@ const (
 )
 
 type BrushSiteOptionStruct struct {
-	AllowNoneFree           bool
-	AllowPaid               bool
-	AllowHr                 bool
-	AllowZeroSeeders        bool
-	TorrentUploadSpeedLimit int64
-	TorrentMinSizeLimit     int64
-	TorrentMaxSizeLimit     int64
-	Now                     int64
-	Excludes                []string
-	ExcludeTags             []string
-	AllowAddTorrents        int64
-	AcceptAnyFree           bool
+    AllowNoneFree           bool
+    AllowPaid               bool
+    AllowHr                 bool
+    AllowZeroSeeders        bool
+    TorrentUploadSpeedLimit int64
+    TorrentMinSizeLimit     int64
+    TorrentMaxSizeLimit     int64
+    Now                     int64
+    Excludes                []string
+    ExcludeTags             []string
+    AllowAddTorrents        int64
+    AcceptAnyFree           bool
+    // Per-site quota support
+    SiteName                string
+    SiteQuotaLimit          int64 // 0 or negative => no limit
 }
 
 type BrushClientOptionStruct struct {
@@ -143,8 +146,8 @@ func isTorrentStalled(torrent *client.Torrent) bool {
  *   * Use the current seeders / leechers info of torrent when make decisions
  */
 func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteTorrents []*site.Torrent,
-	siteOption *BrushSiteOptionStruct, clientOption *BrushClientOptionStruct) (result *AlgorithmResult) {
-	result = &AlgorithmResult{}
+    siteOption *BrushSiteOptionStruct, clientOption *BrushClientOptionStruct) (result *AlgorithmResult) {
+    result = &AlgorithmResult{}
 
 	cntTorrents := int64(len(clientTorrents))
 	cntDownloadingTorrents := int64(0)
@@ -153,13 +156,13 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
 	freespaceTarget := min(clientOption.MinDiskSpace*2, clientOption.MinDiskSpace+DELETE_TORRENTS_FREE_DISK_SPACE_TIER)
 	estimateUploadSpeed := clientStatus.UploadSpeed
 
-	var candidateTorrents []candidateTorrentStruct
-	var modifyTorrents []AlgorithmModifyTorrent
-	var stallTorrents []AlgorithmModifyTorrent
-	var resumeTorrents []AlgorithmOperationTorrent
-	var deleteCandidateTorrents []candidateClientTorrentStruct
-	clientTorrentsMap := map[string]*clientTorrentInfoStruct{}
-	siteTorrentsMap := map[string]*site.Torrent{}
+    var candidateTorrents []candidateTorrentStruct
+    var modifyTorrents []AlgorithmModifyTorrent
+    var stallTorrents []AlgorithmModifyTorrent
+    var resumeTorrents []AlgorithmOperationTorrent
+    var deleteCandidateTorrents []candidateClientTorrentStruct
+    clientTorrentsMap := map[string]*clientTorrentInfoStruct{}
+    siteTorrentsMap := map[string]*site.Torrent{}
 
 	targetUploadSpeed := clientStatus.UploadSpeedLimit
 	if targetUploadSpeed <= 0 {
@@ -171,9 +174,22 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
 			Torrent: clientTorrents[i],
 		}
 	}
-	for i, siteTorrent := range siteTorrents {
-		siteTorrentsMap[siteTorrent.InfoHash] = siteTorrents[i]
-	}
+    for i, siteTorrent := range siteTorrents {
+        siteTorrentsMap[siteTorrent.InfoHash] = siteTorrents[i]
+    }
+
+    // Per-site quota tracking
+    siteQuotaLimit := siteOption.SiteQuotaLimit
+    siteName := siteOption.SiteName
+    var siteQuotaUsed int64 = 0
+    var siteQuotaDelta int64 = 0 // negative when deleting; positive when adding
+    if siteQuotaLimit > 0 && siteName != "" {
+        for _, torrent := range clientTorrents {
+            if torrent.GetSiteFromTag() == siteName {
+                siteQuotaUsed += torrent.Size
+            }
+        }
+    }
 
 	for _, siteTorrent := range siteTorrents {
 		score, predictionUploadSpeed, _ := RateSiteTorrent(siteTorrent, siteOption)
@@ -322,54 +338,60 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
 
 	// @todo: use Dynamic Programming to better find torrents suitable for delete
 	// delete torrents
-	for _, deleteTorrent := range deleteCandidateTorrents {
-		torrent := clientTorrentsMap[deleteTorrent.InfoHash].Torrent
-		shouldDelete := false
-		if deleteTorrent.Score >= DELETE_TORRENT_IMMEDIATELY_SCORE ||
-			(freespace >= 0 && freespace <= clientOption.MinDiskSpace && freespace+freespaceChange <= freespaceTarget) {
-			shouldDelete = true
-		} else if torrent.Ctime <= 0 &&
-			torrent.Meta["stt"] > 0 &&
-			siteOption.Now-torrent.Meta["stt"] >= STALL_TORRENT_DELETEION_TIMESPAN {
-			shouldDelete = true
-		}
-		if !shouldDelete {
-			continue
-		}
-		result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
-			InfoHash: torrent.InfoHash,
-			Name:     torrent.Name,
-			Msg:      deleteTorrent.Msg,
-		})
-		freespaceChange += torrent.SizeCompleted
-		estimateUploadSpeed -= torrent.UploadSpeed
-		clientTorrentsMap[torrent.InfoHash].DeleteFlag = true
-		if countAsDownloading(torrent, siteOption.Now) {
-			cntDownloadingTorrents--
-		}
-		cntTorrents--
-	}
+    for _, deleteTorrent := range deleteCandidateTorrents {
+        torrent := clientTorrentsMap[deleteTorrent.InfoHash].Torrent
+        shouldDelete := false
+        if deleteTorrent.Score >= DELETE_TORRENT_IMMEDIATELY_SCORE ||
+            (freespace >= 0 && freespace <= clientOption.MinDiskSpace && freespace+freespaceChange <= freespaceTarget) {
+            shouldDelete = true
+        } else if torrent.Ctime <= 0 &&
+            torrent.Meta["stt"] > 0 &&
+            siteOption.Now-torrent.Meta["stt"] >= STALL_TORRENT_DELETEION_TIMESPAN {
+            shouldDelete = true
+        }
+        if !shouldDelete {
+            continue
+        }
+        result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
+            InfoHash: torrent.InfoHash,
+            Name:     torrent.Name,
+            Msg:      deleteTorrent.Msg,
+        })
+        freespaceChange += torrent.SizeCompleted
+        estimateUploadSpeed -= torrent.UploadSpeed
+        clientTorrentsMap[torrent.InfoHash].DeleteFlag = true
+        if siteQuotaLimit > 0 && siteName != "" && torrent.GetSiteFromTag() == siteName {
+            siteQuotaDelta -= torrent.Size
+        }
+        if countAsDownloading(torrent, siteOption.Now) {
+            cntDownloadingTorrents--
+        }
+        cntTorrents--
+    }
 
 	// if still not enough free space, delete ALL stalled incomplete torrents
-	if freespace >= 0 && freespace <= clientOption.MinDiskSpace && freespace+freespaceChange <= freespaceTarget {
-		for _, torrent := range clientTorrents {
-			if clientTorrentsMap[torrent.InfoHash].DeleteFlag || !isTorrentStalled(torrent) {
-				continue
-			}
-			result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
-				InfoHash: torrent.InfoHash,
-				Name:     torrent.Name,
-				Msg:      "delete stalled incomplete torrents due to insufficient disk space",
-			})
-			freespaceChange += torrent.SizeCompleted
-			estimateUploadSpeed -= torrent.UploadSpeed
-			clientTorrentsMap[torrent.InfoHash].DeleteFlag = true
-			if countAsDownloading(torrent, siteOption.Now) {
-				cntDownloadingTorrents--
-			}
-			cntTorrents--
-		}
-	}
+    if freespace >= 0 && freespace <= clientOption.MinDiskSpace && freespace+freespaceChange <= freespaceTarget {
+        for _, torrent := range clientTorrents {
+            if clientTorrentsMap[torrent.InfoHash].DeleteFlag || !isTorrentStalled(torrent) {
+                continue
+            }
+            result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
+                InfoHash: torrent.InfoHash,
+                Name:     torrent.Name,
+                Msg:      "delete stalled incomplete torrents due to insufficient disk space",
+            })
+            freespaceChange += torrent.SizeCompleted
+            estimateUploadSpeed -= torrent.UploadSpeed
+            clientTorrentsMap[torrent.InfoHash].DeleteFlag = true
+            if siteQuotaLimit > 0 && siteName != "" && torrent.GetSiteFromTag() == siteName {
+                siteQuotaDelta -= torrent.Size
+            }
+            if countAsDownloading(torrent, siteOption.Now) {
+                cntDownloadingTorrents--
+            }
+            cntTorrents--
+        }
+    }
 
 	// delete torrents due to max brush torrents limit
 	cntDeleteDueToMaxTorrents := max(cntTorrents-clientOption.MaxTorrents, -siteOption.AllowAddTorrents)
@@ -466,26 +488,102 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
 	}
 
 	// add new torrents
-	if (freespace == -1 || freespace+freespaceChange > clientOption.MinDiskSpace) &&
-		cntTorrents <= clientOption.MaxTorrents {
-		var added int64
-		for cntDownloadingTorrents < clientOption.MaxDownloadingTorrents &&
-			estimateUploadSpeed <= targetUploadSpeed*2 && len(candidateTorrents) > 0 &&
-			added < siteOption.AllowAddTorrents {
-			candidateTorrent := candidateTorrents[0]
-			candidateTorrents = candidateTorrents[1:]
-			result.AddTorrents = append(result.AddTorrents, AlgorithmAddTorrent{
-				DownloadUrl: candidateTorrent.DownloadUrl,
-				Name:        candidateTorrent.Name,
-				Meta:        candidateTorrent.Meta,
-				Msg:         fmt.Sprintf("new torrrent of score %.0f", candidateTorrent.Score),
-			})
-			added++
-			cntTorrents++
-			cntDownloadingTorrents++
-			estimateUploadSpeed += candidateTorrent.PredictionUploadSpeed
-		}
-	}
+    if (freespace == -1 || freespace+freespaceChange > clientOption.MinDiskSpace) &&
+        cntTorrents <= clientOption.MaxTorrents {
+        var added int64
+        for cntDownloadingTorrents < clientOption.MaxDownloadingTorrents &&
+            estimateUploadSpeed <= targetUploadSpeed*2 && len(candidateTorrents) > 0 &&
+            added < siteOption.AllowAddTorrents {
+            candidateTorrent := candidateTorrents[0]
+            candidateTorrents = candidateTorrents[1:]
+            // Enforce per-site quota by deleting slow torrents of the same site when needed
+            if siteQuotaLimit > 0 && siteName != "" {
+                // current available capacity for this site
+                siteAvailable := siteQuotaLimit - (siteQuotaUsed + siteQuotaDelta)
+                if candidateTorrent.Size > siteAvailable {
+                    required := candidateTorrent.Size - siteAvailable
+                    // Try to free space by deleting slow/stalled torrents of this site
+                    for _, del := range deleteCandidateTorrents {
+                        if required <= 0 {
+                            break
+                        }
+                        info := clientTorrentsMap[del.InfoHash]
+                        if info == nil || info.DeleteFlag {
+                            continue
+                        }
+                        t := info.Torrent
+                        if t.GetSiteFromTag() != siteName {
+                            continue
+                        }
+                        // delete
+                        result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
+                            InfoHash: t.InfoHash,
+                            Name:     t.Name,
+                            Msg:      del.Msg + " (delete due to site quota)",
+                        })
+                        freespaceChange += t.SizeCompleted
+                        estimateUploadSpeed -= t.UploadSpeed
+                        info.DeleteFlag = true
+                        if countAsDownloading(t, siteOption.Now) {
+                            cntDownloadingTorrents--
+                        }
+                        cntTorrents--
+                        // update site quota tracking
+                        siteQuotaDelta -= t.Size
+                        required -= t.Size
+                    }
+                    // If still not enough, try delete stalled incomplete torrents of this site
+                    if required > 0 {
+                        for _, info := range clientTorrentsMap {
+                            if required <= 0 {
+                                break
+                            }
+                            if info == nil || info.DeleteFlag {
+                                continue
+                            }
+                            t := info.Torrent
+                            if t.GetSiteFromTag() != siteName || !isTorrentStalled(t) {
+                                continue
+                            }
+                            result.DeleteTorrents = append(result.DeleteTorrents, AlgorithmOperationTorrent{
+                                InfoHash: t.InfoHash,
+                                Name:     t.Name,
+                                Msg:      "delete stalled torrent due to site quota",
+                            })
+                            freespaceChange += t.SizeCompleted
+                            estimateUploadSpeed -= t.UploadSpeed
+                            info.DeleteFlag = true
+                            if countAsDownloading(t, siteOption.Now) {
+                                cntDownloadingTorrents--
+                            }
+                            cntTorrents--
+                            siteQuotaDelta -= t.Size
+                            required -= t.Size
+                        }
+                    }
+                    // If still not enough, skip this candidate and try next one
+                    siteAvailable = siteQuotaLimit - (siteQuotaUsed + siteQuotaDelta)
+                    if candidateTorrent.Size > siteAvailable {
+                        // cannot free enough space for this candidate; skip it
+                        continue
+                    }
+                }
+            }
+            result.AddTorrents = append(result.AddTorrents, AlgorithmAddTorrent{
+                DownloadUrl: candidateTorrent.DownloadUrl,
+                Name:        candidateTorrent.Name,
+                Meta:        candidateTorrent.Meta,
+                Msg:         fmt.Sprintf("new torrrent of score %.0f", candidateTorrent.Score),
+            })
+            added++
+            cntTorrents++
+            cntDownloadingTorrents++
+            estimateUploadSpeed += candidateTorrent.PredictionUploadSpeed
+            if siteQuotaLimit > 0 && siteName != "" {
+                siteQuotaDelta += candidateTorrent.Size
+            }
+        }
+    }
 
 	result.FreeSpaceChange = freespaceChange
 
@@ -594,19 +692,21 @@ func RateSiteTorrent(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStruc
 }
 
 func GetBrushSiteOptions(siteInstance site.Site, ts int64) *BrushSiteOptionStruct {
-	return &BrushSiteOptionStruct{
-		TorrentMinSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMinSizeLimitValue,
-		TorrentMaxSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMaxSizeLimitValue,
-		TorrentUploadSpeedLimit: siteInstance.GetSiteConfig().TorrentUploadSpeedLimitValue,
-		AllowNoneFree:           siteInstance.GetSiteConfig().BrushAllowNoneFree,
-		AcceptAnyFree:           siteInstance.GetSiteConfig().BrushAcceptAnyFree,
-		AllowPaid:               siteInstance.GetSiteConfig().BrushAllowPaid,
-		AllowHr:                 siteInstance.GetSiteConfig().BrushAllowHr,
-		AllowZeroSeeders:        siteInstance.GetSiteConfig().BrushAllowZeroSeeders,
-		Excludes:                siteInstance.GetSiteConfig().BrushExcludes,
-		ExcludeTags:             siteInstance.GetSiteConfig().BrushExcludeTags,
-		Now:                     ts,
-	}
+    return &BrushSiteOptionStruct{
+        TorrentMinSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMinSizeLimitValue,
+        TorrentMaxSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMaxSizeLimitValue,
+        TorrentUploadSpeedLimit: siteInstance.GetSiteConfig().TorrentUploadSpeedLimitValue,
+        AllowNoneFree:           siteInstance.GetSiteConfig().BrushAllowNoneFree,
+        AcceptAnyFree:           siteInstance.GetSiteConfig().BrushAcceptAnyFree,
+        AllowPaid:               siteInstance.GetSiteConfig().BrushAllowPaid,
+        AllowHr:                 siteInstance.GetSiteConfig().BrushAllowHr,
+        AllowZeroSeeders:        siteInstance.GetSiteConfig().BrushAllowZeroSeeders,
+        Excludes:                siteInstance.GetSiteConfig().BrushExcludes,
+        ExcludeTags:             siteInstance.GetSiteConfig().BrushExcludeTags,
+        Now:                     ts,
+        SiteName:                siteInstance.GetName(),
+        SiteQuotaLimit:          siteInstance.GetSiteConfig().BrushMaxDiskSizeValue,
+    }
 }
 
 func GetBrushClientOptions(clientInstance client.Client) *BrushClientOptionStruct {
