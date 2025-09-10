@@ -150,11 +150,12 @@ type SiteConfigStruct struct {
 	DynamicSeedingReplaceSeeders   int64      `yaml:"dynamicSeedingReplaceSeeders"`
 
 	// Official seeding configs
-	OfficialSeedingTorrentsUrl    string `yaml:"officialSeedingTorrentsUrl"`
-	OfficialSeedingSize           string `yaml:"officialSeedingSize"`
-	OfficialSeedingTorrentMaxSize string `yaml:"officialSeedingTorrentMaxSize"`
-	OfficialSeedingTorrentMinSize string `yaml:"officialSeedingTorrentMinSize"`
-	OfficialSeedingMember         int64  `yaml:"officialSeedingMember"`
+    OfficialSeedingTorrentsUrl    string `yaml:"officialSeedingTorrentsUrl"`
+    OfficialSeedingSize           string `yaml:"officialSeedingSize"`
+    OfficialSeedingTorrentMaxSize string `yaml:"officialSeedingTorrentMaxSize"`
+    OfficialSeedingTorrentMinSize string `yaml:"officialSeedingTorrentMinSize"`
+    OfficialSeedingMember         int64  `yaml:"officialSeedingMember"`
+    OfficialSeedingOnlyFree       bool   `yaml:"officialSeedingOnlyFree"`
 	SearchQueryVariable            string     `yaml:"searchQueryVariable"`
 	TorrentsExtraUrls              []string   `yaml:"torrentsExtraUrls"`
 	Cookie                         string     `yaml:"cookie"`

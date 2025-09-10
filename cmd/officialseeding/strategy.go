@@ -258,7 +258,8 @@ site_outer:
             if maxScan > 0 && scannedTorrents > maxScan {
                 break site_outer
             }
-            if torrent.HasHnR || (torrent.Paid && !torrent.Bought) || torrent.DownloadMultiplier != 0 {
+            onlyFree := siteInstance.GetSiteConfig().OfficialSeedingOnlyFree
+            if torrent.HasHnR || (torrent.Paid && !torrent.Bought) || (onlyFree && torrent.DownloadMultiplier != 0) {
                 continue
             }
             if siteInstance.GetSiteConfig().OfficialSeedingTorrentMaxSizeValue > 0 &&

@@ -75,6 +75,7 @@ cookie = 'cookie_here'
 #officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
 #officialSeedingTorrentsUrl = 'rescue.php' # 站点官方保种页面（未配置则默认使用该地址）
 #officialSeedingMember = 5 # 列表中做种人数小于等于该值的视为候选，优先下载做种人数更少的；大于该值时无奖励（以添加时做种人数为准）
+#officialSeedingOnlyFree = false # 官方保种是否仅下载“免费”种子（默认 false；设为 true 则只选免费）
 #timezone = 'Asia/Shanghai' # 网站页面显示时间的时区
 
 # 新版 m-team (馒头) 不支持 Cookie。必须使用 token 鉴权。两种方法选择其一：

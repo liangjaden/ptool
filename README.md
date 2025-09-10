@@ -1158,6 +1158,7 @@ officialSeedingSize = '5TiB' # 官方保种使用硬盘空间，与站点刷流/
 officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
 officialSeedingTorrentsUrl = 'rescue.php' # 站点官方保种页面（未配置则默认使用该地址）
 officialSeedingMember = 5 # 官方保种列表中做种人数阈值（≤5 有奖励），并按做种人数少优先
+officialSeedingOnlyFree = false # 是否仅下载“免费”种子（默认 false）
 ```
 
 然后定期运行以下命令即可，参数分别为官方保种使用的 BT 客户端、站点名：
@@ -1169,7 +1170,7 @@ ptool officialseeding local kamept
 “官方保种”功能详细说明：
 
 - 如果“可用空间”（可用空间为 officialSeedingSize 减去 BT 客户端里当前该站点所有官方保种种子大小之和）有空余，程序会从站点官方保种页面下载符合条件的种子并做种。
-- 默认仅会下载免费并且没有 HR 的种子。
+- 默认下载“无 HR”的种子；是否要求“免费”可通过 `officialSeedingOnlyFree` 控制，默认不强制免费（因为不少站官方保种并非免费）。
 - 官方保种的种子会放到 qBittorrent 的 `official-seeding-<sitename>` 分类里，并且打上 `site:<sitename>` 标签。
 - 如果“可用空间”不足并且有新的亟需保种的种子，程序会删除 BT 客户端里该站点的官方保种种子里“原始做种人数最多”的种子，以腾出空间下载新的种子。对于站点已经删除的种子，程序也会从 BT 客户端里删除。
 - 对于 BT 客户端里正在做种的官方保种种子，如果其当前做种人数 < 4，程序在任何情况下都不会自动删除该种子（即使“可用空间”不足）。
