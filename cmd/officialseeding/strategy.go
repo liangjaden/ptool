@@ -7,6 +7,7 @@ import (
     "os"
     "slices"
     "sort"
+    "strings"
 
     log "github.com/sirupsen/logrus"
 
@@ -216,7 +217,15 @@ func doOfficialSeeding(clientInstance client.Client, siteInstance site.Site, ign
 
     // 获取站点官方保种页面的种子列表，优先做种人数少的
     officialUrl := siteInstance.GetSiteConfig().OfficialSeedingTorrentsUrl
-    // NexusPHP rescue.php 通常支持 seeders 查询参数；但不依赖，后续在内存过滤
+    // 默认使用站点的 rescue 列表。如果未配置，则尝试常见路径。
+    if officialUrl == "" {
+        officialUrl = "rescue.php"
+    }
+    // 按做种数排序扫描（与 dynamicseeding 一致）；NexusPHP 支持 seeders_begin=1
+    if siteInstance.GetSiteConfig().Type == "nexusphp" {
+        officialUrl = util.AppendUrlQueryString(officialUrl, "seeders_begin=1")
+    }
+    // 按做种数排序扫描（与 dynamicseeding 一致）
     var siteTorrents []*site.Torrent
     var siteTorrentsSize int64
     var scannedTorrents int64

@@ -1156,7 +1156,7 @@ type = 'hh'
 cookie = '...'
 officialSeedingSize = '5TiB' # 官方保种使用硬盘空间，与站点刷流/动态保种空间不冲突
 officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
-officialSeedingTorrentsUrl = 'https://hhanclub.top/rescue.php' # 站点官方保种页面
+officialSeedingTorrentsUrl = 'rescue.php' # 站点官方保种页面（未配置则默认使用该地址）
 officialSeedingMember = 5 # 官方保种列表中做种人数阈值（≤5 有奖励），并按做种人数少优先
 ```
 

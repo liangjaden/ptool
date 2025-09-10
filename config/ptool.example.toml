@@ -73,7 +73,7 @@ cookie = 'cookie_here'
 # 官方保种（officialseeding）示例配置（以 NexusPHP 为例，如 hhanclub 的 rescue.php）：
 #officialSeedingSize = '5TiB' # 官方保种使用硬盘空间，与站点刷流/动态保种空间互不冲突
 #officialSeedingTorrentMaxSize = '20GiB' # 官方保种单个种子大小上限
-#officialSeedingTorrentsUrl = 'https://hhanclub.top/rescue.php' # 站点官方保种页面
+#officialSeedingTorrentsUrl = 'rescue.php' # 站点官方保种页面（未配置则默认使用该地址）
 #officialSeedingMember = 5 # 列表中做种人数小于等于该值的视为候选，优先下载做种人数更少的；大于该值时无奖励（以添加时做种人数为准）
 #timezone = 'Asia/Shanghai' # 网站页面显示时间的时区
 

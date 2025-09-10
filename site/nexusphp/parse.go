@@ -421,14 +421,35 @@ func parseTorrents(doc *goquery.Document, option *TorrentsParserOption,
 		if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && option.selectorTorrentSeeders != "" {
 			seeders = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSeeders))
 		}
+		// Fallback: common NexusPHP link patterns (works for pages like rescue.php)
+		if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && seeders == 0 {
+			if s.Find(`a[href*="seeders"]`).Length() > 0 {
+				seeders = util.ParseInt(util.DomSelectorText(s, `a[href*="seeders"]`))
+			}
+		}
 		if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && option.selectorTorrentLeechers != "" {
 			leechers = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentLeechers))
+		}
+		if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && leechers == 0 {
+			if s.Find(`a[href*="leechers"]`).Length() > 0 {
+				leechers = util.ParseInt(util.DomSelectorText(s, `a[href*="leechers"]`))
+			}
 		}
 		if fieldColumIndex["snatched"] == -1 && option.selectorTorrentSnatched != "" {
 			snatched = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSnatched))
 		}
 		if (fieldColumIndex["size"] == -1 || size <= 0) && option.selectorTorrentSize != "" {
 			size, _ = util.RAMInBytes(util.DomSelectorText(s, option.selectorTorrentSize))
+		}
+		// Fallback: try to extract first size-like token from block text
+		if (fieldColumIndex["size"] == -1 || size <= 0) {
+			// Match tokens like "6.73 GB", "196.73 GiB", "1.2TB"
+			sizeValueRegexp := regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:[KMGTP]i?B)\b`)
+			if m := sizeValueRegexp.FindString(text); m != "" {
+				if v, err := util.RAMInBytes(m); err == nil && v > 0 {
+					size = v
+				}
+			}
 		}
 		if s.Find(`*[title="H&R"],*[alt="H&R"],*[title="Hit and Run"]`).Length() > 0 {
 			hnr = true

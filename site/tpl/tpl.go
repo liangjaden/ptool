@@ -317,6 +317,12 @@ var (
 			Aliases:                    []string{"hh", "hhan"},
 			Url:                        "https://hhanclub.top/",
 			Domains:                    []string{"hhan.club"},
+			// rescue.php 页面为“蜘蛛表格”，使用以下选择器以便通用解析器识别
+			SelectorTorrentsList:       `.torrent-table-for-spider`,
+			SelectorTorrentBlock:       `.torrent-table-for-spider-info`,
+			SelectorTorrent:            `.torrent-info-text-name`,
+			SelectorTorrentDetailsLink: `.torrent-info-text-name`,
+			SelectorTorrentDownloadLink: `a[href*="/download.php?id="]`,
 			SelectorUserInfoUploaded:   `img[alt="上传"],img[alt="上傳"]@after`,
 			SelectorUserInfoDownloaded: `img[alt="下载"],img[alt="下載"]@after`,
 			SelectorTorrentSize:        `.torrent-info-text-size`,
