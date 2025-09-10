@@ -241,6 +241,12 @@ site_outer:
             result.Log += fmt.Sprintf("failed to get site torrents: %v\n", err)
             break
         }
+        // 调试输出：本页抓到的原始条目
+        result.Log += fmt.Sprintf("Fetched %d torrents from page (marker=%q)\n", len(torrents), marker)
+        if log.GetLevel() >= log.TraceLevel {
+            fmt.Fprintf(os.Stderr, "site raw torrents (before filtering):\n")
+            site.PrintTorrents(os.Stderr, torrents, "", timestamp, false, false, nil)
+        }
         rand.Shuffle(len(torrents), func(i, j int) { torrents[i], torrents[j] = torrents[j], torrents[i] })
         slices.SortStableFunc(torrents, func(a, b *site.Torrent) int { return int(a.Seeders - b.Seeders) })
         for _, torrent := range torrents {
@@ -249,10 +255,12 @@ site_outer:
                 continue
             }
             if torrent.Seeders < 1 || torrent.IsCurrentActive {
+                result.Log += fmt.Sprintf("Skip %q (id=%s): seeders=%d active=%t\n", torrent.Name, torrent.Id, torrent.Seeders, torrent.IsCurrentActive)
                 continue
             }
             if torrent.Seeders > member {
                 // 仅跳过该条，继续扫描其余候选（部分站点排序未必严格按做种数升序）
+                result.Log += fmt.Sprintf("Skip %q: seeders=%d > member=%d\n", torrent.Name, torrent.Seeders, member)
                 continue
             }
             scannedTorrents++
@@ -261,15 +269,26 @@ site_outer:
             }
             onlyFree := siteInstance.GetSiteConfig().OfficialSeedingOnlyFree
             if torrent.HasHnR || (torrent.Paid && !torrent.Bought) || (onlyFree && torrent.DownloadMultiplier != 0) {
+                result.Log += fmt.Sprintf("Skip %q: hnr=%t paid=%t bought=%t onlyFree=%t free=%t\n",
+                    torrent.Name, torrent.HasHnR, torrent.Paid, torrent.Bought, onlyFree, torrent.DownloadMultiplier == 0)
                 continue
             }
             if siteInstance.GetSiteConfig().OfficialSeedingTorrentMaxSizeValue > 0 &&
                 torrent.Size > siteInstance.GetSiteConfig().OfficialSeedingTorrentMaxSizeValue ||
                 siteInstance.GetSiteConfig().OfficialSeedingTorrentMinSizeValue > 0 &&
                     torrent.Size < siteInstance.GetSiteConfig().OfficialSeedingTorrentMinSizeValue {
+                result.Log += fmt.Sprintf("Skip %q: size=%s out of [%s, %s]\n", torrent.Name,
+                    util.BytesSizeAround(float64(torrent.Size)),
+                    util.BytesSizeAround(float64(siteInstance.GetSiteConfig().OfficialSeedingTorrentMinSizeValue)),
+                    util.BytesSizeAround(float64(siteInstance.GetSiteConfig().OfficialSeedingTorrentMaxSizeValue)))
                 continue
             }
             if torrent.Size > availableSpace-siteTorrentsSize {
+                result.Log += fmt.Sprintf("Skip %q: insufficient page-space size=%s need=%s avail=%s\n",
+                    torrent.Name,
+                    util.BytesSizeAround(float64(torrent.Size)),
+                    util.BytesSizeAround(float64(torrent.Size-(availableSpace-siteTorrentsSize))),
+                    util.BytesSizeAround(float64(availableSpace-siteTorrentsSize)))
                 continue
             }
             siteTorrents = append(siteTorrents, torrent)
@@ -284,7 +303,9 @@ site_outer:
         marker = nextPageMarker
     }
     if len(siteTorrents) == 0 {
+        // 打印原始页数据，便于排查过滤原因
         result.Msg = "No candidate site official seeding torrents found"
+        fmt.Fprintf(os.Stderr, "officialseeding debug log:\n%s\n", result.Log)
         return
     }
     fmt.Fprintf(os.Stderr, "site candidate torrents:\n")
