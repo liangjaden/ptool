@@ -412,14 +412,22 @@ func parseTorrents(doc *goquery.Document, option *TorrentsParserOption,
 		}
 		if fieldColumIndex["time"] == -1 || time == 0 {
 			if option.selectorTorrentTime != "" {
-				time, _ = util.ExtractTime(util.DomSelectorText(s, option.selectorTorrentTime), option.location)
+				txt := util.DomSelectorText(s, option.selectorTorrentTime)
+				if txt == "" {
+					txt = util.DomSelectorText(s.Parent(), option.selectorTorrentTime)
+				}
+				time, _ = util.ExtractTime(txt, option.location)
 			} else {
 				time, _ = util.ExtractTime(text, option.location)
 			}
 		}
 		zeroSeederLeechers := seeders == 0 && leechers == 0
         if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && option.selectorTorrentSeeders != "" {
-            seeders = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSeeders))
+            txt := util.DomSelectorText(s, option.selectorTorrentSeeders)
+            if txt == "" {
+                txt = util.DomSelectorText(s.Parent(), option.selectorTorrentSeeders)
+            }
+            seeders = util.ParseInt(txt)
         }
         // Fallback: common NexusPHP link patterns (works for pages like rescue.php)
         if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && seeders == 0 {
@@ -434,7 +442,11 @@ func parseTorrents(doc *goquery.Document, option *TorrentsParserOption,
             }
         }
         if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && option.selectorTorrentLeechers != "" {
-            leechers = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentLeechers))
+            txt := util.DomSelectorText(s, option.selectorTorrentLeechers)
+            if txt == "" {
+                txt = util.DomSelectorText(s.Parent(), option.selectorTorrentLeechers)
+            }
+            leechers = util.ParseInt(txt)
         }
         if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && leechers == 0 {
             if s.Find(`a[href*="leechers"]`).Length() > 0 {
@@ -449,9 +461,13 @@ func parseTorrents(doc *goquery.Document, option *TorrentsParserOption,
 		if fieldColumIndex["snatched"] == -1 && option.selectorTorrentSnatched != "" {
 			snatched = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSnatched))
 		}
-		if (fieldColumIndex["size"] == -1 || size <= 0) && option.selectorTorrentSize != "" {
-			size, _ = util.RAMInBytes(util.DomSelectorText(s, option.selectorTorrentSize))
-		}
+        if (fieldColumIndex["size"] == -1 || size <= 0) && option.selectorTorrentSize != "" {
+            txt := util.DomSelectorText(s, option.selectorTorrentSize)
+            if txt == "" {
+                txt = util.DomSelectorText(s.Parent(), option.selectorTorrentSize)
+            }
+            size, _ = util.RAMInBytes(txt)
+        }
 		// Fallback: try to extract first size-like token from block text
 		if (fieldColumIndex["size"] == -1 || size <= 0) {
 			// Match tokens like "6.73 GB", "196.73 GiB", "1.2TB"
