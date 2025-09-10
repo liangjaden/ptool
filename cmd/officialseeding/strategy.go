@@ -252,7 +252,8 @@ site_outer:
                 continue
             }
             if torrent.Seeders > member {
-                break site_outer
+                // 仅跳过该条，继续扫描其余候选（部分站点排序未必严格按做种数升序）
+                continue
             }
             scannedTorrents++
             if maxScan > 0 && scannedTorrents > maxScan {
