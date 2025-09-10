@@ -418,23 +418,34 @@ func parseTorrents(doc *goquery.Document, option *TorrentsParserOption,
 			}
 		}
 		zeroSeederLeechers := seeders == 0 && leechers == 0
-		if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && option.selectorTorrentSeeders != "" {
-			seeders = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSeeders))
-		}
-		// Fallback: common NexusPHP link patterns (works for pages like rescue.php)
-		if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && seeders == 0 {
-			if s.Find(`a[href*="seeders"]`).Length() > 0 {
-				seeders = util.ParseInt(util.DomSelectorText(s, `a[href*="seeders"]`))
-			}
-		}
-		if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && option.selectorTorrentLeechers != "" {
-			leechers = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentLeechers))
-		}
-		if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && leechers == 0 {
-			if s.Find(`a[href*="leechers"]`).Length() > 0 {
-				leechers = util.ParseInt(util.DomSelectorText(s, `a[href*="leechers"]`))
-			}
-		}
+        if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && option.selectorTorrentSeeders != "" {
+            seeders = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSeeders))
+        }
+        // Fallback: common NexusPHP link patterns (works for pages like rescue.php)
+        if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && seeders == 0 {
+            if s.Find(`a[href*="seeders"]`).Length() > 0 {
+                seeders = util.ParseInt(util.DomSelectorText(s, `a[href*="seeders"]`))
+            }
+        }
+        // Fallback: common class names containing "seeders"
+        if (fieldColumIndex["seeders"] == -1 || zeroSeederLeechers) && seeders == 0 {
+            if s.Find(`.torrent-info-text-seeders, [class*="seeders"]`).Length() > 0 {
+                seeders = util.ParseInt(util.DomSelectorText(s, `.torrent-info-text-seeders, [class*="seeders"]`))
+            }
+        }
+        if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && option.selectorTorrentLeechers != "" {
+            leechers = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentLeechers))
+        }
+        if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && leechers == 0 {
+            if s.Find(`a[href*="leechers"]`).Length() > 0 {
+                leechers = util.ParseInt(util.DomSelectorText(s, `a[href*="leechers"]`))
+            }
+        }
+        if (fieldColumIndex["leechers"] == -1 || zeroSeederLeechers) && leechers == 0 {
+            if s.Find(`.torrent-info-text-leechers, [class*="leechers"]`).Length() > 0 {
+                leechers = util.ParseInt(util.DomSelectorText(s, `.torrent-info-text-leechers, [class*="leechers"]`))
+            }
+        }
 		if fieldColumIndex["snatched"] == -1 && option.selectorTorrentSnatched != "" {
 			snatched = util.ParseInt(util.DomSelectorText(s, option.selectorTorrentSnatched))
 		}

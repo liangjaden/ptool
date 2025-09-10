@@ -405,11 +405,48 @@ labelLastPage:
 		}
 	}
 
-	torrents, err = npclient.parseTorrentsFromDoc(doc, now)
-	if err != nil {
-		log.Tracef("Failed to get torrents from doc: %v", err)
-		return
-	}
+    // Use site-specific parser overrides for special pages
+    opt := *npclient.torrentsParserOption
+    // hhanclub rescue.php 专用选择器（仅当访问 rescue 列表时启用）
+    isRescue := strings.Contains(torrentsPageUrl, "rescue.php") ||
+        strings.Contains(torrentsPageUrl, "type=rescue") ||
+        (res != nil && (strings.Contains(res.Request.Url, "/rescue.php") || strings.Contains(res.Request.Url, "type=rescue")))
+    if isRescue && (strings.EqualFold(npclient.Name, "hh") || strings.EqualFold(npclient.Name, "hhanclub")) {
+        opt.selectorTorrentsList = `.torrent-table-for-spider`
+        opt.selectorTorrentBlock = `.torrent-table-for-spider-info`
+        opt.selectorTorrent = `.torrent-info-text-name`
+        opt.selectorTorrentDetailsLink = `.torrent-info-text-name`
+        opt.selectorTorrentDownloadLink = `a[href*="/download.php?id="]`
+        opt.selectorTorrentSize = `.torrent-info-text-size`
+        opt.selectorTorrentTime = `.torrent-info-text-added`
+        opt.selectorTorrentSeeders = `.torrent-info-text-seeders`
+        opt.selectorTorrentLeechers = `.torrent-info-text-leechers`
+        opt.selectorTorrentSnatched = `.torrent-info-text-finished`
+    }
+
+    torrents, err = parseTorrents(doc, &opt, now, npclient.GetName())
+    if err != nil {
+        log.Tracef("Failed to get torrents from doc: %v", err)
+        return
+    }
+    // Keep passkey / cuhash extraction behavior consistent with parseTorrentsFromDoc()
+    if (npclient.SiteConfig.UsePasskey && npclient.passkey == "" ||
+        npclient.SiteConfig.UseCuhash && npclient.cuhash == "") &&
+        len(torrents) > 0 && torrents[0].DownloadUrl != "" {
+        if urlObj, e := url.Parse(torrents[0].DownloadUrl); e == nil {
+            q := urlObj.Query()
+            if npclient.SiteConfig.UseCuhash {
+                cuhash := q.Get("cuhash")
+                log.Debugf("Update site %s cuhash=%s", npclient.Name, cuhash)
+                npclient.cuhash = cuhash
+            }
+            if npclient.SiteConfig.UsePasskey {
+                passkey := q.Get("passkey")
+                log.Debugf("Update site %s passkey=%s", npclient.Name, passkey)
+                npclient.passkey = passkey
+            }
+        }
+    }
 	// 部分站点（如蝴蝶）有 bug，分页栏的最后一页内容有时是空的
 	if pageMarker == "" && lastPage > 1 && len(torrents) == 0 {
 		lastPage--
