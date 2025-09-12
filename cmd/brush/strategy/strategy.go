@@ -966,10 +966,10 @@ func rateSiteTorrentV2(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStr
     // demand = L/(S+1)
     denom := siteTorrent.Seeders + 1
     if denom <= 0 { denom = 1 }
-    demand := float64(siteTorrent.Leechers) / float64(denom)
+    rawDemand := float64(siteTorrent.Leechers) / float64(denom)
     k := stats.EstimateKSite(siteOption.SiteName, siteOption.Now)
     if k <= 0 { k = 100 * 1024 } // fallback
-    predictionUploadSpeed = int64(math.Round(float64(k) * demand))
+    predictionUploadSpeed = int64(math.Round(float64(k) * rawDemand))
     if predictionUploadSpeed > siteOption.TorrentUploadSpeedLimit {
         predictionUploadSpeed = siteOption.TorrentUploadSpeedLimit
     }
