@@ -34,7 +34,8 @@ const OFFICIAL_MEMBER_DEFAULT = 5
 // 客户端下载相关参数
 const MIN_SIZE = 10 * 1024 * 1024 * 1024 // 最小 officialSeedingSize 要求。10GiB
 const NEW_TORRENT_TIMESPAN = 3600
-const MAX_PARALLEL_DOWNLOAD = 3
+// default fallback when per-site config is not set or invalid
+const DEFAULT_MAX_PARALLEL_DOWNLOAD = 3
 const INACTIVITY_TIMESPAN = 3600 * 3 // 未完成种长时间无活动则视为失败
 
 type Result struct {
@@ -174,7 +175,12 @@ func doOfficialSeeding(clientInstance client.Client, siteInstance site.Site, ign
         }
     }
 
-    availableSlots := MAX_PARALLEL_DOWNLOAD - len(downloadingTorrents)
+    // Resolve per-site max parallel downloading limit (fallback to default if <= 0)
+    maxParallel := int(siteInstance.GetSiteConfig().OfficialSeedingMaxDownloadingTorrents)
+    if maxParallel <= 0 {
+        maxParallel = DEFAULT_MAX_PARALLEL_DOWNLOAD
+    }
+    availableSlots := maxParallel - len(downloadingTorrents)
     statistics := common.NewTorrentsStatistics()
     for _, ih := range protectedTorrents {
         statistics.UpdateClientTorrent(common.TORRENT_SUCCESS, clientTorrentsMap[ih])
@@ -205,7 +211,7 @@ func doOfficialSeeding(clientInstance client.Client, siteInstance site.Site, ign
         util.BytesSizeAround(float64(statistics.FailureSize)),
         util.BytesSizeAround(float64(availableSpace)))
 
-    if len(downloadingTorrents) >= MAX_PARALLEL_DOWNLOAD {
+    if len(downloadingTorrents) >= maxParallel {
         result.Msg = "Already currently downloading enough torrents. Exit"
         return
     }

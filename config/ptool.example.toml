@@ -15,6 +15,12 @@ iyuuToken = '' # iyuu token。用于使用 Iyuu (https://github.com/ledccn/IYUUA
 #shellMaxSuggestions = 5 # ptool shell 自动补全显示建议数量。设为 -1 禁用
 #shellMaxHistory = 500 # ptool shell 命令历史记录保存数量。设为 -1 禁用
 
+#
+# 官方保种/动态保种并发上限配置示例（站点级）：
+# 将以下键添加到对应 [[sites]] 块中使用；未设置则默认 3
+#officialSeedingMaxDownloadingTorrents = 3
+#dynamicSeedingMaxDownloadingTorrents = 3
+
 
 # 配置 BitTorrent 客户端
 # 完整支持 qBittorrent  v4.1+ (推荐使用 qb v4.4+)
@@ -140,3 +146,5 @@ name = "st"
 cmd = "status -t"
 minArgs = 0
 defaultArgs = "local"
+
+

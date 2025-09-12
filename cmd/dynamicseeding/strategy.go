@@ -37,7 +37,8 @@ const MIN_SEEDERS = 3
 // client torrent params
 const MIN_SIZE = 10 * 1024 * 1024 * 1024 // minimal dynamicSeedingSize required. 10GiB
 const NEW_TORRENT_TIMESPAN = 3600
-const MAX_PARALLEL_DOWNLOAD = 3
+// default fallback when per-site config is not set or invalid
+const DEFAULT_MAX_PARALLEL_DOWNLOAD = 3
 const INACTIVITY_TIMESPAN = 3600 * 3 // If incomplete torrent has no activity for enough time, abort.
 // Could replace a client seeding torrent with a new site torrent if their seeders diff >= this
 const MIN_REPLACE_SEEDERS_DIFF = 3
@@ -76,8 +77,8 @@ func (result *Result) Print(output io.Writer) {
 }
 
 func doDynamicSeeding(clientInstance client.Client, siteInstance site.Site, ignores []string) (
-	result *Result, err error) {
-	timestamp := util.Now()
+    result *Result, err error) {
+    timestamp := util.Now()
 	if siteInstance.GetSiteConfig().DynamicSeedingSizeValue <= MIN_SIZE {
 		return nil, fmt.Errorf("dynamicSeedingSize insufficient. Current value: %s. At least %s is required",
 			util.BytesSizeAround(float64(siteInstance.GetSiteConfig().DynamicSeedingSizeValue)),
@@ -201,7 +202,12 @@ func doDynamicSeeding(clientInstance client.Client, siteInstance site.Site, igno
 			statistics.UpdateClientTorrent(common.TORRENT_SUCCESS, torrent)
 		}
 	}
-	availableSlots := MAX_PARALLEL_DOWNLOAD - len(downloadingTorrents)
+    // Resolve per-site max parallel downloading limit (fallback to default if <= 0)
+    maxParallel := int(siteInstance.GetSiteConfig().DynamicSeedingMaxDownloadingTorrents)
+    if maxParallel <= 0 {
+        maxParallel = DEFAULT_MAX_PARALLEL_DOWNLOAD
+    }
+    availableSlots := maxParallel - len(downloadingTorrents)
 	availableSpace := siteInstance.GetSiteConfig().DynamicSeedingSizeValue - statistics.SuccessSize
 	if !clientStatus.NoDel {
 		availableSpace += statistics.FailureSize
@@ -219,10 +225,10 @@ func doDynamicSeeding(clientInstance client.Client, siteInstance site.Site, igno
 		util.BytesSizeAround(float64(statistics.FailureSize)),
 		util.BytesSizeAround(float64(availableSpace)))
 
-	if len(downloadingTorrents) >= MAX_PARALLEL_DOWNLOAD {
-		result.Msg = "Already currently downloading enough torrents. Exit"
-		return
-	}
+    if len(downloadingTorrents) >= maxParallel {
+        result.Msg = "Already currently downloading enough torrents. Exit"
+        return
+    }
 	if availableSpace < min(siteInstance.GetSiteConfig().DynamicSeedingSizeValue/10, MIN_SIZE) {
 		result.Msg = "Insufficient dynamic seeding storage space in client. Exit"
 		return
@@ -264,7 +270,7 @@ site_outer:
 				continue
 			}
 			if torrent.DiscountEndTime > 0 {
-				estimateDownloadTime := torrent.Size / downloadingSpeedLimit / MAX_PARALLEL_DOWNLOAD
+                estimateDownloadTime := torrent.Size / downloadingSpeedLimit / int64(maxParallel)
 				remainFreeTime := torrent.DiscountEndTime - timestamp
 				if remainFreeTime <= max(estimateDownloadTime/2, MIN_FREE_REMAINING_TIME) {
 					continue

@@ -144,10 +144,12 @@ type SiteConfigStruct struct {
 	DynamicSeedingSize             string     `yaml:"dynamicSeedingSize"`
 	DynamicSeedingTorrentMinSize   string     `yaml:"dynamicSeedingTorrentMinSize"`
 	DynamicSeedingTorrentMaxSize   string     `yaml:"dynamicSeedingTorrentMaxSize"`
-	DynamicSeedingMaxScan          int64      `yaml:"dynamicSeedingMaxScan"`
-	DynamicSeedingMinSeeders       int64      `yaml:"dynamicSeedingMinSeeders"`
-	DynamicSeedingMaxSeeders       int64      `yaml:"dynamicSeedingMaxSeeders"`
-	DynamicSeedingReplaceSeeders   int64      `yaml:"dynamicSeedingReplaceSeeders"`
+    DynamicSeedingMaxScan          int64      `yaml:"dynamicSeedingMaxScan"`
+    DynamicSeedingMinSeeders       int64      `yaml:"dynamicSeedingMinSeeders"`
+    DynamicSeedingMaxSeeders       int64      `yaml:"dynamicSeedingMaxSeeders"`
+    DynamicSeedingReplaceSeeders   int64      `yaml:"dynamicSeedingReplaceSeeders"`
+    // Max number of concurrent downloading torrents for dynamic seeding (per-site)
+    DynamicSeedingMaxDownloadingTorrents int64 `yaml:"dynamicSeedingMaxDownloadingTorrents"`
 
 	// Official seeding configs
     OfficialSeedingTorrentsUrl    string `yaml:"officialSeedingTorrentsUrl"`
@@ -156,6 +158,8 @@ type SiteConfigStruct struct {
     OfficialSeedingTorrentMinSize string `yaml:"officialSeedingTorrentMinSize"`
     OfficialSeedingMember         int64  `yaml:"officialSeedingMember"`
     OfficialSeedingOnlyFree       bool   `yaml:"officialSeedingOnlyFree"`
+    // Max number of concurrent downloading torrents for official seeding (per-site)
+    OfficialSeedingMaxDownloadingTorrents int64 `yaml:"officialSeedingMaxDownloadingTorrents"`
 	SearchQueryVariable            string     `yaml:"searchQueryVariable"`
 	TorrentsExtraUrls              []string   `yaml:"torrentsExtraUrls"`
 	Cookie                         string     `yaml:"cookie"`
