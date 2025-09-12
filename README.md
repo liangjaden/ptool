@@ -2,6 +2,15 @@
 
 自用的 PT ([Private trackers][]) 网站和 [BitTorrent][] 客户端辅助工具([Github](https://github.com/sagan/ptool))。提供全自动刷流(brush)、自动辅种(使用 IYUU 或 Reseed 等接口)、BT 客户端控制等功能。
 
+## 最近更新（按功能迭代时间倒序）
+
+- 2025-09：刷流评分 v2 与在线学习 k_site（站点/时段）
+  - 评分开关：站点级 `brushScoreVersion: v2`（未配置或非 v2 则使用旧版 v1）
+  - v2 参数外提：支持按站点自定义需求/时效/体积/折扣/倍率/热度等权重与阈值
+  - 预测上传速度：按 `prediction = k_site × demand` 估计；`demand = L/(S+1)`；`k_site` 通过已删刷流种子的生命周期均速与“添加时 L/(S+1)”在线学习，按时间桶聚合、EWMA 平滑
+  - 学习与持久化：启用全局 `brushEnableStats` 后，数据保存于配置目录的 `ptool_ksite.json`
+  - 全局调参：`brushKSiteBucketHours`（桶大小，默认 4 小时）、`brushKSiteEwmaAlpha`（EWMA α，默认 0.3）
+
 TOC
 
 - [ptool](#ptool)
@@ -237,6 +246,45 @@ ptool brush local mteam
 其它说明：
 
 - No-Add 模式：如果 BT 客户端里当前存在 `_noadd` 这个标签(tag)，刷流任务不会添加任何新种子到客户端。
+
+### 评分 v2（可选）与在线学习 k_site
+
+- 开关（站点级）：
+  - TOML：在站点块中加入 `brushScoreVersion = 'v2'`
+  - YAML：在站点块中加入 `brushScoreVersion: 'v2'`
+- v2 评分核心参数（仅 v2 有效，未配置使用内置默认）：
+  - 需求：`brushScoreDemandAlpha`（默认 0.7）、`brushScoreDemandMax`（默认 50）
+  - 时效（秒）：`brushScoreAgeT0Seconds`（默认 1200）、`brushScoreAgeTauSeconds`（默认 10800）、`brushScoreAgeTauStrictSeconds`（默认 7200，AcceptAnyFree=false 时使用）
+  - 体积（GiB）分段与得分：
+    - 断点：`brushScoreSizeBpSmallGiB`/`IdealMinGiB`/`IdealMaxGiB`/`MedMaxGiB`/`LargeMaxGiB`
+    - 得分：`brushScoreSizeScoreTiny`/`Ideal`/`Med`/`Large`/`Huge`
+    - 超大包加成：`brushScoreHugeLBoost1/2/3` 与 `brushScoreHugeBoost1/2/3`
+  - 折扣窗口：`brushScoreDiscountWindowSeconds`（默认 14400）
+  - 非免费惩罚：`brushScoreNonfreePenalty`（默认 0.6）
+  - 热度平滑：`brushScoreSnatchK`（默认 200）、`brushScoreSnatchAdd`（默认 0.1）
+  - 组合权重：`brushScoreWeightsDemand/Age/Size/Discount`（默认 0.7/0.5/0.3/0.5）
+- 预测上传速度（仅 v2）：
+  - `prediction = k_site × demand`，其中 `demand = L/(S+1)`
+  - `k_site` 在线学习（需启用全局 `brushEnableStats`）：
+    - 学习来源：刷流种子删除时，使用其“生命周期平均上传速度”和“添加时 L/(S+1)”估计样本
+    - 聚合与平滑：按时间桶（默认 4 小时）聚合，EWMA 平滑（默认 α=0.3），至少 3 条样本后参与预测
+    - 持久化文件：`ptool_ksite.json`（与配置文件同目录）
+- 全局学习参数（TOML/YAML 顶层）：
+  - `brushKSiteBucketHours`：时间桶大小（小时），默认 4
+  - `brushKSiteEwmaAlpha`：EWMA α（0~1），默认 0.3
+
+示例（TOML 站点片段）：
+
+```
+[[sites]]
+type = 'keepfrds'
+cookie = 'cookie_here'
+brushScoreVersion = 'v2'
+brushScoreDemandAlpha = 0.7
+brushScoreAgeTauSeconds = 10800
+```
+
+注：未开启 v2 时默认使用 v1 评分；v1 逻辑保持不变。
 
 ## 自动辅种 (iyuu)
 

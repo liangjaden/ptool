@@ -219,13 +219,33 @@ func brush(cmd *cobra.Command, args []string) (err error) {
 		if !dryRun {
 			err := client.DeleteTorrentsAuto(clientInstance, deleteTorrentInfoHashes)
 			log.Printf("Delete torrents result: error=%v", err)
-			if err == nil {
-				cntDeleteTorrents += int64(len(deleteTorrentInfoHashes))
-				if statDb != nil {
-					statDb.AddTorrentStats(brushSiteOption.Now, 1, deleteTorrentStats)
+				if err == nil {
+					cntDeleteTorrents += int64(len(deleteTorrentInfoHashes))
+					if statDb != nil {
+						statDb.AddTorrentStats(brushSiteOption.Now, 1, deleteTorrentStats)
+					}
+					// Learn k_site from deleted torrents using lifetime avg upload speed and recorded demand at add time
+					for _, st := range deleteTorrentStats {
+						if st.Site == "" || st.Atime <= 0 {
+							continue
+						}
+						dur := brushSiteOption.Now - st.Atime
+						if dur <= 0 || st.Uploaded <= 0 {
+							continue
+						}
+						avgUp := st.Uploaded / dur
+						ct := *util.FindInSlice(clientTorrents, func(t *client.Torrent) bool { return t.InfoHash == st.InfoHash })
+						if ct == nil || ct.Meta == nil {
+							continue
+						}
+						dm := ct.Meta["bdm"]
+						if dm <= 0 {
+							continue
+						}
+						stats.LearnKSite(st.Site, st.Atime, dm, avgUp)
+					}
 				}
 			}
-		}
 
 		// stall
 		for _, torrent := range result.StallTorrents {

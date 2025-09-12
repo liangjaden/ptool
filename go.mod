@@ -1,6 +1,6 @@
 module github.com/sagan/ptool
 
-go 1.23.0
+go 1.23
 
 // fix broken build on Windows due to incorrent copyFileRange function.
 replace github.com/KarpelesLab/reflink => ./reflink

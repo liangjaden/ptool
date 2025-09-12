@@ -1,6 +1,8 @@
 # 本 ptool.example.yaml 文件包含的配置项不完整。建议参考 ptool.example.toml 版本的示例配置文件。
 iyuuToken: abcdefg
-#brushEnableStats: false # 启用刷流统计功能
+#brushEnableStats: false       # 启用刷流统计功能
+#brushKSiteBucketHours: 4      # k_site 学习时间桶大小（小时）
+#brushKSiteEwmaAlpha: 0.3      # k_site EWMA alpha（0~1），越大越快收敛
 clients:
   -
     name: "local"
@@ -20,6 +22,37 @@ sites:
     type: "nexusphp"
     url: "https://kp.m-team.cc/"
     cookie: "cookie_here"
+    # 刷流评分算法开关与参数示例：
+    # brushScoreVersion: "v2"   # 未配置或非 v2 则默认使用旧版 v1
+    # brushScoreDemandAlpha: 0.7
+    # brushScoreDemandMax: 50
+    # brushScoreAgeT0Seconds: 1200
+    # brushScoreAgeTauSeconds: 10800
+    # brushScoreAgeTauStrictSeconds: 7200
+    # brushScoreDiscountWindowSeconds: 14400
+    # brushScoreNonfreePenalty: 0.6
+    # brushScoreSnatchK: 200
+    # brushScoreSnatchAdd: 0.1
+    # brushScoreSizeBpSmallGiB: 1
+    # brushScoreSizeBpIdealMinGiB: 2
+    # brushScoreSizeBpIdealMaxGiB: 15
+    # brushScoreSizeBpMedMaxGiB: 20
+    # brushScoreSizeBpLargeMaxGiB: 60
+    # brushScoreSizeScoreTiny: 0.6
+    # brushScoreSizeScoreIdeal: 1.0
+    # brushScoreSizeScoreMed: 0.8
+    # brushScoreSizeScoreLarge: 0.5
+    # brushScoreSizeScoreHuge: 0.2
+    # brushScoreHugeLBoost1: 100
+    # brushScoreHugeLBoost2: 500
+    # brushScoreHugeLBoost3: 1000
+    # brushScoreHugeBoost1: 2.0
+    # brushScoreHugeBoost2: 5.0
+    # brushScoreHugeBoost3: 10.0
+    # brushScoreWeightsDemand: 0.7
+    # brushScoreWeightsAge: 0.5
+    # brushScoreWeightsSize: 0.3
+    # brushScoreWeightsDiscount: 0.5
     #officialSeedingSize: "5TiB" # 官方保种使用硬盘空间
     #officialSeedingTorrentMaxSize: "20GiB" # 官方保种单个种子大小上限
     #officialSeedingTorrentsUrl: "rescue.php" # 官方保种页面（未配置则默认使用该地址）

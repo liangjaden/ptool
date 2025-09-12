@@ -182,6 +182,48 @@ type SiteConfigStruct struct {
     BrushAcceptAnyFree             bool       `yaml:"brushAcceptAnyFree"`
     // Limit total disk size occupied by this site's brush torrents. Empty => no limit
     BrushMaxDiskSize               string     `yaml:"brushMaxDiskSize"`
+
+    // Brush scoring control and parameters
+    // If not set or not "v2", falls back to legacy v1 scoring.
+    BrushScoreVersion              string     `yaml:"brushScoreVersion"`
+    // The following parameters only take effect when BrushScoreVersion == "v2".
+    // Demand factor params
+    BrushScoreDemandAlpha          float64    `yaml:"brushScoreDemandAlpha"`
+    BrushScoreDemandMax            float64    `yaml:"brushScoreDemandMax"`
+    // Age factor params (seconds)
+    BrushScoreAgeT0Seconds         int64      `yaml:"brushScoreAgeT0Seconds"`
+    BrushScoreAgeTauSeconds        int64      `yaml:"brushScoreAgeTauSeconds"`
+    BrushScoreAgeTauStrictSeconds  int64      `yaml:"brushScoreAgeTauStrictSeconds"`
+    // Size factor breakpoints (GiB) and scores
+    BrushScoreSizeBpSmallGiB       float64    `yaml:"brushScoreSizeBpSmallGiB"`
+    BrushScoreSizeBpIdealMinGiB    float64    `yaml:"brushScoreSizeBpIdealMinGiB"`
+    BrushScoreSizeBpIdealMaxGiB    float64    `yaml:"brushScoreSizeBpIdealMaxGiB"`
+    BrushScoreSizeBpMedMaxGiB      float64    `yaml:"brushScoreSizeBpMedMaxGiB"`
+    BrushScoreSizeBpLargeMaxGiB    float64    `yaml:"brushScoreSizeBpLargeMaxGiB"`
+    BrushScoreSizeScoreTiny        float64    `yaml:"brushScoreSizeScoreTiny"`
+    BrushScoreSizeScoreIdeal       float64    `yaml:"brushScoreSizeScoreIdeal"`
+    BrushScoreSizeScoreMed         float64    `yaml:"brushScoreSizeScoreMed"`
+    BrushScoreSizeScoreLarge       float64    `yaml:"brushScoreSizeScoreLarge"`
+    BrushScoreSizeScoreHuge        float64    `yaml:"brushScoreSizeScoreHuge"`
+    // Huge pack extra boost
+    BrushScoreHugeLBoost1          int64      `yaml:"brushScoreHugeLBoost1"`
+    BrushScoreHugeLBoost2          int64      `yaml:"brushScoreHugeLBoost2"`
+    BrushScoreHugeLBoost3          int64      `yaml:"brushScoreHugeLBoost3"`
+    BrushScoreHugeBoost1           float64    `yaml:"brushScoreHugeBoost1"`
+    BrushScoreHugeBoost2           float64    `yaml:"brushScoreHugeBoost2"`
+    BrushScoreHugeBoost3           float64    `yaml:"brushScoreHugeBoost3"`
+    // Discount factor window (seconds)
+    BrushScoreDiscountWindowSeconds int64     `yaml:"brushScoreDiscountWindowSeconds"`
+    // Non-free penalty
+    BrushScoreNonfreePenalty       float64    `yaml:"brushScoreNonfreePenalty"`
+    // Snatch smoothing / add weight
+    BrushScoreSnatchK              float64    `yaml:"brushScoreSnatchK"`
+    BrushScoreSnatchAdd            float64    `yaml:"brushScoreSnatchAdd"`
+    // Composition weights
+    BrushScoreWeightsDemand        float64    `yaml:"brushScoreWeightsDemand"`
+    BrushScoreWeightsAge           float64    `yaml:"brushScoreWeightsAge"`
+    BrushScoreWeightsSize          float64    `yaml:"brushScoreWeightsSize"`
+    BrushScoreWeightsDiscount      float64    `yaml:"brushScoreWeightsDiscount"`
 	SelectorTorrentsListHeader     string     `yaml:"selectorTorrentsListHeader"`
 	SelectorTorrentsList           string     `yaml:"selectorTorrentsList"`
 	SelectorTorrentBlock           string     `yaml:"selectorTorrentBlock"` // dom block of a torrent in list
@@ -273,8 +315,11 @@ type ConfigStruct struct {
 	SiteTimeout         int64                      `yaml:"siteTimeout"`  // 访问网站超时时间(秒)
 	SiteInsecure        bool                       `yaml:"siteInsecure"` // 强制禁用所有站点 TLS 证书校验。
 	SiteH2Fingerprint   string                     `yaml:"siteH2Fingerprint"`
-	BrushEnableStats    bool                       `yaml:"brushEnableStats"`
-	Clients             []*ClientConfigStruct      `yaml:"clients"`
+    BrushEnableStats    bool                       `yaml:"brushEnableStats"`
+    // Online-learning k_site estimator params (global)
+    BrushKSiteBucketHours int64   `yaml:"brushKSiteBucketHours"` // hours per bucket, default 4
+    BrushKSiteEwmaAlpha   float64 `yaml:"brushKSiteEwmaAlpha"`   // (0,1), default 0.3
+    Clients             []*ClientConfigStruct      `yaml:"clients"`
 	Sites               []*SiteConfigStruct        `yaml:"sites"`
 	Groups              []*GroupConfigStruct       `yaml:"groups"`
 	Aliases             []*AliasConfigStruct       `yaml:"aliases"`

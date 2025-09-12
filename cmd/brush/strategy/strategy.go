@@ -1,15 +1,17 @@
 package strategy
 
 import (
-	"fmt"
-	"math"
-	"sort"
+    "fmt"
+    "math"
+    "sort"
+    "strings"
 
-	log "github.com/sirupsen/logrus"
+    log "github.com/sirupsen/logrus"
 
-	"github.com/sagan/ptool/client"
-	"github.com/sagan/ptool/site"
-	"github.com/sagan/ptool/util"
+    "github.com/sagan/ptool/client"
+    "github.com/sagan/ptool/site"
+    "github.com/sagan/ptool/util"
+    "github.com/sagan/ptool/stats"
 )
 
 const (
@@ -25,9 +27,62 @@ const (
 	// stalled torrent will be deleted after this time passed
 	STALL_TORRENT_DELETEION_TIMESPAN     = int64(30 * 60)
 	BANDWIDTH_FULL_PERCENT               = float64(0.8)
-	DELETE_TORRENT_IMMEDIATELY_SCORE     = float64(99999)
-	RESUME_TORRENTS_FREE_DISK_SPACE_TIER = int64(5 * 1024 * 1024 * 1024)  // 5GB
-	DELETE_TORRENTS_FREE_DISK_SPACE_TIER = int64(10 * 1024 * 1024 * 1024) // 10GB
+    DELETE_TORRENT_IMMEDIATELY_SCORE     = float64(99999)
+    RESUME_TORRENTS_FREE_DISK_SPACE_TIER = int64(5 * 1024 * 1024 * 1024)  // 5GB
+    DELETE_TORRENTS_FREE_DISK_SPACE_TIER = int64(10 * 1024 * 1024 * 1024) // 10GB
+)
+
+// --- Brush scoring v2 defaults (can be tuned later via config, for now constants) ---
+const (
+    // demand factor: min(Dmax, L/(S+1)^alpha)/Dmax
+    SCORE_DEMAND_ALPHA   = 0.7
+    SCORE_DEMAND_MAX     = 50.0
+
+    // age factor: exp(- max(0, (now-time)-t0) / tau). Units: seconds
+    SCORE_AGE_T0_SECONDS        = 20 * 60        // 20min
+    SCORE_AGE_TAU_SECONDS       = 3 * 3600       // 3h
+    SCORE_AGE_TAU_ANYFREE       = 3 * 3600       // AcceptAnyFree=true 时同样默认 3h
+    SCORE_AGE_TAU_STRICT_FREE   = 2 * 3600       // AcceptAnyFree=false 时更严格
+
+    // size factor breakpoints (GiB)
+    SIZE_BP_SMALL_GIB    = 1.0
+    SIZE_BP_IDEAL_MIN_GIB = 2.0
+    SIZE_BP_IDEAL_MAX_GIB = 15.0
+    SIZE_BP_MED_MAX_GIB  = 20.0
+    SIZE_BP_LARGE_MAX_GIB = 60.0
+
+    // size factor weights at key points
+    SIZE_SCORE_TINY   = 0.6
+    SIZE_SCORE_IDEAL  = 1.0
+    SIZE_SCORE_MED    = 0.8
+    SIZE_SCORE_LARGE  = 0.5
+    SIZE_SCORE_HUGE   = 0.2
+
+    // extra boost for huge packs with very high leechers
+    HUGE_L_BOOST_1 = 100
+    HUGE_L_BOOST_2 = 500
+    HUGE_L_BOOST_3 = 1000
+    HUGE_BOOST_1   = 2.0
+    HUGE_BOOST_2   = 5.0
+    HUGE_BOOST_3   = 10.0
+
+    // discount factor window (seconds)
+    SCORE_DISCOUNT_WINDOW = 4 * 3600
+
+    // non-free penalty
+    SCORE_NONFREE_PENALTY = 0.6
+
+    // snatched smoothing param
+    SCORE_SNATCH_K = 200.0
+
+    // composition exponents
+    SCORE_W_DEMAND   = 0.7
+    SCORE_W_AGE      = 0.5
+    SCORE_W_SIZE     = 0.3
+    SCORE_W_DISCOUNT = 0.5
+
+    // additive snatch weight
+    SCORE_SNATCH_ADD = 0.1
 )
 
 type BrushSiteOptionStruct struct {
@@ -46,6 +101,45 @@ type BrushSiteOptionStruct struct {
     // Per-site quota support
     SiteName                string
     SiteQuotaLimit          int64 // 0 or negative => no limit
+    // Scoring control
+    ScoreVersion            string
+    ScoreV2                 *BrushScoreV2Params
+}
+
+// BrushScoreV2Params groups tunables for v2 scoring. When nil, v2 is disabled.
+type BrushScoreV2Params struct {
+    DemandAlpha  float64
+    DemandMax    float64
+    AgeT0Seconds int64
+    AgeTauSeconds int64
+    AgeTauStrictSeconds int64
+
+    SizeBpSmallGiB     float64
+    SizeBpIdealMinGiB  float64
+    SizeBpIdealMaxGiB  float64
+    SizeBpMedMaxGiB    float64
+    SizeBpLargeMaxGiB  float64
+    SizeScoreTiny      float64
+    SizeScoreIdeal     float64
+    SizeScoreMed       float64
+    SizeScoreLarge     float64
+    SizeScoreHuge      float64
+
+    HugeLBoost1 int64
+    HugeLBoost2 int64
+    HugeLBoost3 int64
+    HugeBoost1  float64
+    HugeBoost2  float64
+    HugeBoost3  float64
+
+    DiscountWindowSeconds int64
+    NonfreePenalty        float64
+    SnatchK               float64
+    SnatchAdd             float64
+    WDemand               float64
+    WAge                  float64
+    WSize                 float64
+    WDiscount             float64
 }
 
 type BrushClientOptionStruct struct {
@@ -191,23 +285,36 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
         }
     }
 
-	for _, siteTorrent := range siteTorrents {
-		score, predictionUploadSpeed, _ := RateSiteTorrent(siteTorrent, siteOption)
-		if score > 0 {
-			candidateTorrent := candidateTorrentStruct{
-				Name:                  siteTorrent.Name,
-				Size:                  siteTorrent.Size,
-				DownloadUrl:           siteTorrent.DownloadUrl,
-				PredictionUploadSpeed: predictionUploadSpeed,
-				Score:                 score,
-				Meta:                  map[string]int64{},
-			}
-			if siteTorrent.DiscountEndTime > 0 {
-				candidateTorrent.Meta["dcet"] = siteTorrent.DiscountEndTime
-			}
-			candidateTorrents = append(candidateTorrents, candidateTorrent)
-		}
-	}
+    for _, siteTorrent := range siteTorrents {
+        score, predictionUploadSpeed, _ := RateSiteTorrent(siteTorrent, siteOption)
+        if score > 0 {
+            candidateTorrent := candidateTorrentStruct{
+                Name:                  siteTorrent.Name,
+                Size:                  siteTorrent.Size,
+                DownloadUrl:           siteTorrent.DownloadUrl,
+                PredictionUploadSpeed: predictionUploadSpeed,
+                Score:                 score,
+                Meta:                  map[string]int64{},
+            }
+            if siteTorrent.DiscountEndTime > 0 {
+                candidateTorrent.Meta["dcet"] = siteTorrent.DiscountEndTime
+            }
+            // Record selection-time S/L features for later k_site learning
+            candidateTorrent.Meta["bl"] = siteTorrent.Leechers
+            candidateTorrent.Meta["bs"] = siteTorrent.Seeders
+            // demand milli = round(1000 * L/(S+1))
+            denom := siteTorrent.Seeders + 1
+            if denom <= 0 {
+                denom = 1
+            }
+            dm := (float64(siteTorrent.Leechers) / float64(denom)) * 1000.0
+            if dm < 0 {
+                dm = 0
+            }
+            candidateTorrent.Meta["bdm"] = int64(math.Round(dm))
+            candidateTorrents = append(candidateTorrents, candidateTorrent)
+        }
+    }
 	sort.SliceStable(candidateTorrents, func(i, j int) bool {
 		return candidateTorrents[i].Score > candidateTorrents[j].Score
 	})
@@ -598,115 +705,346 @@ func Decide(clientStatus *client.Status, clientTorrents []*client.Torrent, siteT
 }
 
 func RateSiteTorrent(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStruct) (
-	score float64, predictionUploadSpeed int64, note string) {
-	if log.GetLevel() >= log.TraceLevel {
-		defer func() {
-			log.Tracef("rateSiteTorrent score=%0.0f name=%s, free=%t, rtime=%d, seeders=%d, leechers=%d, note=%s",
-				score,
-				siteTorrent.Name,
-				siteTorrent.DownloadMultiplier == 0,
-				siteOption.Now-siteTorrent.Time,
-				siteTorrent.Seeders,
-				siteTorrent.Leechers,
-				note,
-			)
-		}()
-	}
-	if siteTorrent.IsActive || siteTorrent.UploadMultiplier == 0 ||
-		(!siteOption.AllowHr && siteTorrent.HasHnR) ||
-		(!siteOption.AllowNoneFree && siteTorrent.DownloadMultiplier != 0) ||
-		(!siteOption.AllowPaid && siteTorrent.Paid && !siteTorrent.Bought) ||
-		siteTorrent.Size < siteOption.TorrentMinSizeLimit ||
-		siteTorrent.Size > siteOption.TorrentMaxSizeLimit ||
-		(siteTorrent.DiscountEndTime > 0 && siteTorrent.DiscountEndTime-siteOption.Now < 3600) ||
-		(!siteOption.AllowZeroSeeders && siteTorrent.Seeders == 0) ||
-		((!siteOption.AcceptAnyFree || siteTorrent.DownloadMultiplier != 0) && siteTorrent.Leechers <= siteTorrent.Seeders) {
-		score = 0
-		return
-	}
-	if siteTorrent.MatchFiltersOr(siteOption.Excludes) {
-		score = 0
-		note = "brush excludes match"
-		return
-	}
-	if siteTorrent.HasAnyTag(siteOption.ExcludeTags) {
-		score = 0
-		note = "brush exclude tags match"
-		return
-	}
-	// 部分站点定期将旧种重新置顶免费。这类种子仍然可以获得很好的上传速度。
-	if !siteOption.AcceptAnyFree && siteOption.Now-siteTorrent.Time <= 86400*30 {
-		if siteOption.Now-siteTorrent.Time >= 86400 {
-			score = 0
-			return
-		} else if siteOption.Now-siteTorrent.Time >= 7200 {
-			if siteTorrent.Leechers < 500 {
-				score = 0
-				return
-			}
-		}
-	}
+    score float64, predictionUploadSpeed int64, note string) {
+    // Dispatch by score version; default to v1 when not explicitly "v2"
+    if strings.EqualFold(siteOption.ScoreVersion, "v2") && siteOption.ScoreV2 != nil {
+        return rateSiteTorrentV2(siteTorrent, siteOption)
+    }
+    return rateSiteTorrentV1(siteTorrent, siteOption)
+}
 
-	predictionUploadSpeed = siteTorrent.Leechers * 100 * 1024
-	if predictionUploadSpeed > siteOption.TorrentUploadSpeedLimit {
-		predictionUploadSpeed = siteOption.TorrentUploadSpeedLimit
-	}
+// Legacy V1 scoring (original behavior, default)
+func rateSiteTorrentV1(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStruct) (
+    score float64, predictionUploadSpeed int64, note string) {
+    if log.GetLevel() >= log.TraceLevel {
+        defer func() {
+            log.Tracef("rateSiteTorrent[v1] score=%0.0f name=%s, free=%t, rtime=%d, seeders=%d, leechers=%d, note=%s",
+                score,
+                siteTorrent.Name,
+                siteTorrent.DownloadMultiplier == 0,
+                siteOption.Now-siteTorrent.Time,
+                siteTorrent.Seeders,
+                siteTorrent.Leechers,
+                note,
+            )
+        }()
+    }
+    if siteTorrent.IsActive || siteTorrent.UploadMultiplier == 0 ||
+        (!siteOption.AllowHr && siteTorrent.HasHnR) ||
+        (!siteOption.AllowNoneFree && siteTorrent.DownloadMultiplier != 0) ||
+        (!siteOption.AllowPaid && siteTorrent.Paid && !siteTorrent.Bought) ||
+        siteTorrent.Size < siteOption.TorrentMinSizeLimit ||
+        siteTorrent.Size > siteOption.TorrentMaxSizeLimit ||
+        (siteTorrent.DiscountEndTime > 0 && siteTorrent.DiscountEndTime-siteOption.Now < 3600) ||
+        (!siteOption.AllowZeroSeeders && siteTorrent.Seeders == 0) ||
+        ((!siteOption.AcceptAnyFree || siteTorrent.DownloadMultiplier != 0) && siteTorrent.Leechers <= siteTorrent.Seeders) {
+        score = 0
+        return
+    }
+    if siteTorrent.MatchFiltersOr(siteOption.Excludes) {
+        score = 0
+        note = "brush excludes match"
+        return
+    }
+    if siteTorrent.HasAnyTag(siteOption.ExcludeTags) {
+        score = 0
+        note = "brush exclude tags match"
+        return
+    }
+    // 部分站点定期将旧种重新置顶免费。这类种子仍然可以获得很好的上传速度。
+    if !siteOption.AcceptAnyFree && siteOption.Now-siteTorrent.Time <= 86400*30 {
+        if siteOption.Now-siteTorrent.Time >= 86400 {
+            score = 0
+            return
+        } else if siteOption.Now-siteTorrent.Time >= 7200 {
+            if siteTorrent.Leechers < 500 {
+                score = 0
+                return
+            }
+        }
+    }
 
-	if siteTorrent.Seeders <= 1 {
-		score = 50
-	} else if siteTorrent.Seeders <= 3 {
-		score = 30
-	} else {
-		score = 10
-	}
-	score += float64(siteTorrent.Leechers)
+    predictionUploadSpeed = siteTorrent.Leechers * 100 * 1024
+    if predictionUploadSpeed > siteOption.TorrentUploadSpeedLimit {
+        predictionUploadSpeed = siteOption.TorrentUploadSpeedLimit
+    }
 
-	score *= siteTorrent.UploadMultiplier
-	if siteTorrent.DownloadMultiplier != 0 {
-		score *= 0.5
-	}
+    if siteTorrent.Seeders <= 1 {
+        score = 50
+    } else if siteTorrent.Seeders <= 3 {
+        score = 30
+    } else {
+        score = 10
+    }
+    score += float64(siteTorrent.Leechers)
 
-	if siteTorrent.Size <= 1024*1024*1024 {
-		score *= 10
-	} else if siteTorrent.Size <= 1024*1024*1024*10 {
-		score *= 2
-	} else if siteTorrent.Size <= 1024*1024*1024*20 {
-		score *= 1
-	} else if siteTorrent.Size <= 1024*1024*1024*50 {
-		score *= 0.5
-	} else if siteTorrent.Size <= 1024*1024*1024*100 {
-		score *= 0.1
-	} else {
-		// 大包特殊处理
-		if siteTorrent.Leechers >= 1000 {
-			score *= 100
-		} else if siteTorrent.Leechers >= 500 {
-			score *= 50
-		} else if siteTorrent.Leechers >= 100 {
-			score *= 10
-		} else {
-			score *= 0
-		}
-	}
-	return
+    score *= siteTorrent.UploadMultiplier
+    if siteTorrent.DownloadMultiplier != 0 {
+        score *= 0.5
+    }
+
+    if siteTorrent.Size <= 1024*1024*1024 {
+        score *= 10
+    } else if siteTorrent.Size <= 1024*1024*1024*10 {
+        score *= 2
+    } else if siteTorrent.Size <= 1024*1024*1024*20 {
+        score *= 1
+    } else if siteTorrent.Size <= 1024*1024*1024*50 {
+        score *= 0.5
+    } else if siteTorrent.Size <= 1024*1024*1024*100 {
+        score *= 0.1
+    } else {
+        // 大包特殊处理
+        if siteTorrent.Leechers >= 1000 {
+            score *= 100
+        } else if siteTorrent.Leechers >= 500 {
+            score *= 50
+        } else if siteTorrent.Leechers >= 100 {
+            score *= 10
+        } else {
+            score *= 0
+        }
+    }
+    return
+}
+
+// V2 scoring implementation
+func rateSiteTorrentV2(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStruct) (
+    score float64, predictionUploadSpeed int64, note string) {
+    if log.GetLevel() >= log.TraceLevel {
+        defer func() {
+            log.Tracef("rateSiteTorrent[v2] score=%0.2f name=%s, free=%t, rtime=%d, seeders=%d, leechers=%d, note=%s",
+                score,
+                siteTorrent.Name,
+                siteTorrent.DownloadMultiplier == 0,
+                siteOption.Now-siteTorrent.Time,
+                siteTorrent.Seeders,
+                siteTorrent.Leechers,
+                note,
+            )
+        }()
+    }
+
+    p := siteOption.ScoreV2
+    if p == nil {
+        // should not happen; fallback to v1
+        return rateSiteTorrentV1(siteTorrent, siteOption)
+    }
+
+    // 1) 硬过滤（保守安全）
+    if siteTorrent.IsActive || siteTorrent.UploadMultiplier == 0 ||
+        (!siteOption.AllowHr && siteTorrent.HasHnR) ||
+        (!siteOption.AllowPaid && siteTorrent.Paid && !siteTorrent.Bought) ||
+        siteTorrent.Size < siteOption.TorrentMinSizeLimit ||
+        siteTorrent.Size > siteOption.TorrentMaxSizeLimit ||
+        (!siteOption.AllowZeroSeeders && siteTorrent.Seeders == 0) ||
+        ((!siteOption.AcceptAnyFree || siteTorrent.DownloadMultiplier != 0) && siteTorrent.Leechers <= siteTorrent.Seeders) {
+        score = 0
+        return
+    }
+    if !siteOption.AllowNoneFree && siteTorrent.DownloadMultiplier != 0 {
+        score = 0
+        note = "nonfree not allowed"
+        return
+    }
+    if siteTorrent.MatchFiltersOr(siteOption.Excludes) {
+        score = 0
+        note = "brush excludes match"
+        return
+    }
+    if siteTorrent.HasAnyTag(siteOption.ExcludeTags) {
+        score = 0
+        note = "brush exclude tags match"
+        return
+    }
+    // 折扣将尽的极端情况：10 分钟内结束，避免踩线
+    if siteTorrent.DiscountEndTime > 0 && siteTorrent.DiscountEndTime-siteOption.Now <= 10*60 {
+        score = 0
+        note = "discount ends too soon"
+        return
+    }
+
+    // 2) 因子计算
+    l := float64(siteTorrent.Leechers)
+    s := float64(siteTorrent.Seeders)
+    demand := l / math.Pow(s+1.0, firstNonZeroFloat(p.DemandAlpha, SCORE_DEMAND_ALPHA))
+    dmax := firstNonZeroFloat(p.DemandMax, SCORE_DEMAND_MAX)
+    if demand > dmax {
+        demand = dmax
+    }
+    fDemand := demand / dmax
+
+    // age factor
+    age := float64(siteOption.Now - siteTorrent.Time)
+    if age < 0 {
+        age = 0
+    }
+    t0 := float64(firstNonZeroInt(p.AgeT0Seconds, SCORE_AGE_T0_SECONDS))
+    tau := float64(firstNonZeroInt(p.AgeTauSeconds, SCORE_AGE_TAU_SECONDS))
+    if !siteOption.AcceptAnyFree {
+        tau = float64(firstNonZeroInt(p.AgeTauStrictSeconds, SCORE_AGE_TAU_STRICT_FREE))
+    }
+    fAge := math.Exp(-math.Max(0, age-t0)/tau)
+
+    // size factor
+    sizeGiB := float64(siteTorrent.Size) / (1024.0 * 1024.0 * 1024.0)
+    bpSmall := firstNonZeroFloat(p.SizeBpSmallGiB, SIZE_BP_SMALL_GIB)
+    bpIdealMin := firstNonZeroFloat(p.SizeBpIdealMinGiB, SIZE_BP_IDEAL_MIN_GIB)
+    bpIdealMax := firstNonZeroFloat(p.SizeBpIdealMaxGiB, SIZE_BP_IDEAL_MAX_GIB)
+    bpMedMax := firstNonZeroFloat(p.SizeBpMedMaxGiB, SIZE_BP_MED_MAX_GIB)
+    bpLargeMax := firstNonZeroFloat(p.SizeBpLargeMaxGiB, SIZE_BP_LARGE_MAX_GIB)
+    scTiny := firstNonZeroFloat(p.SizeScoreTiny, SIZE_SCORE_TINY)
+    scIdeal := firstNonZeroFloat(p.SizeScoreIdeal, SIZE_SCORE_IDEAL)
+    scMed := firstNonZeroFloat(p.SizeScoreMed, SIZE_SCORE_MED)
+    scLarge := firstNonZeroFloat(p.SizeScoreLarge, SIZE_SCORE_LARGE)
+    scHuge := firstNonZeroFloat(p.SizeScoreHuge, SIZE_SCORE_HUGE)
+
+    fSize := func() float64 {
+        if sizeGiB <= bpSmall {
+            return scTiny
+        }
+        if sizeGiB <= bpIdealMin {
+            ratio := (sizeGiB - bpSmall) / (bpIdealMin - bpSmall)
+            return scTiny + ratio*(scIdeal-scTiny)
+        }
+        if sizeGiB <= bpIdealMax {
+            return scIdeal
+        }
+        if sizeGiB <= bpMedMax {
+            ratio := (sizeGiB - bpIdealMax) / (bpMedMax - bpIdealMax)
+            return scIdeal + ratio*(scMed-scIdeal)
+        }
+        if sizeGiB <= bpLargeMax {
+            return scLarge
+        }
+        base := scHuge
+        if siteTorrent.Leechers >= firstNonZeroInt(p.HugeLBoost3, HUGE_L_BOOST_3) {
+            base *= firstNonZeroFloat(p.HugeBoost3, HUGE_BOOST_3)
+        } else if siteTorrent.Leechers >= firstNonZeroInt(p.HugeLBoost2, HUGE_L_BOOST_2) {
+            base *= firstNonZeroFloat(p.HugeBoost2, HUGE_BOOST_2)
+        } else if siteTorrent.Leechers >= firstNonZeroInt(p.HugeLBoost1, HUGE_L_BOOST_1) {
+            base *= firstNonZeroFloat(p.HugeBoost1, HUGE_BOOST_1)
+        }
+        return base
+    }()
+
+    // discount factor
+    fDiscount := 1.0
+    if siteTorrent.DiscountEndTime > 0 {
+        left := float64(siteTorrent.DiscountEndTime - siteOption.Now)
+        if left <= 0 {
+            fDiscount = 0
+        } else {
+            win := float64(firstNonZeroInt(p.DiscountWindowSeconds, SCORE_DISCOUNT_WINDOW))
+            fDiscount = math.Min(1.0, left/win)
+        }
+    }
+
+    // multiplier: upload multiplier (2x/3x) and non-free penalty
+    mul := siteTorrent.UploadMultiplier
+    if mul <= 0 {
+        mul = 1
+    }
+    penalty := 1.0
+    if siteTorrent.DownloadMultiplier != 0 { // non-free
+        penalty = firstNonZeroFloat(p.NonfreePenalty, SCORE_NONFREE_PENALTY)
+    }
+
+    // snatched factor (soft addend)
+    fSnatch := 1.0 - math.Exp(-float64(siteTorrent.Snatched)/firstNonZeroFloat(p.SnatchK, SCORE_SNATCH_K))
+
+    // 3) 组合
+    core := math.Pow(fDemand, firstNonZeroFloat(p.WDemand, SCORE_W_DEMAND)) *
+        math.Pow(fAge, firstNonZeroFloat(p.WAge, SCORE_W_AGE)) *
+        math.Pow(fSize, firstNonZeroFloat(p.WSize, SCORE_W_SIZE)) *
+        math.Pow(fDiscount, firstNonZeroFloat(p.WDiscount, SCORE_W_DISCOUNT))
+
+    score = core * float64(mul) * penalty
+    score += firstNonZeroFloat(p.SnatchAdd, SCORE_SNATCH_ADD) * fSnatch
+
+    // 4) 预测上传速度：按站点/时段统计估计 (k_site)
+    // demand = L/(S+1)
+    denom := siteTorrent.Seeders + 1
+    if denom <= 0 { denom = 1 }
+    demand := float64(siteTorrent.Leechers) / float64(denom)
+    k := stats.EstimateKSite(siteOption.SiteName, siteOption.Now)
+    if k <= 0 { k = 100 * 1024 } // fallback
+    predictionUploadSpeed = int64(math.Round(float64(k) * demand))
+    if predictionUploadSpeed > siteOption.TorrentUploadSpeedLimit {
+        predictionUploadSpeed = siteOption.TorrentUploadSpeedLimit
+    }
+    return
+}
+
+func firstNonZeroFloat(v float64, def float64) float64 {
+    if v == 0 {
+        return def
+    }
+    return v
+}
+
+func firstNonZeroInt(v int64, def int64) int64 {
+    if v == 0 {
+        return def
+    }
+    return v
 }
 
 func GetBrushSiteOptions(siteInstance site.Site, ts int64) *BrushSiteOptionStruct {
-    return &BrushSiteOptionStruct{
-        TorrentMinSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMinSizeLimitValue,
-        TorrentMaxSizeLimit:     siteInstance.GetSiteConfig().BrushTorrentMaxSizeLimitValue,
-        TorrentUploadSpeedLimit: siteInstance.GetSiteConfig().TorrentUploadSpeedLimitValue,
-        AllowNoneFree:           siteInstance.GetSiteConfig().BrushAllowNoneFree,
-        AcceptAnyFree:           siteInstance.GetSiteConfig().BrushAcceptAnyFree,
-        AllowPaid:               siteInstance.GetSiteConfig().BrushAllowPaid,
-        AllowHr:                 siteInstance.GetSiteConfig().BrushAllowHr,
-        AllowZeroSeeders:        siteInstance.GetSiteConfig().BrushAllowZeroSeeders,
-        Excludes:                siteInstance.GetSiteConfig().BrushExcludes,
-        ExcludeTags:             siteInstance.GetSiteConfig().BrushExcludeTags,
+    sc := siteInstance.GetSiteConfig()
+    opt := &BrushSiteOptionStruct{
+        TorrentMinSizeLimit:     sc.BrushTorrentMinSizeLimitValue,
+        TorrentMaxSizeLimit:     sc.BrushTorrentMaxSizeLimitValue,
+        TorrentUploadSpeedLimit: sc.TorrentUploadSpeedLimitValue,
+        AllowNoneFree:           sc.BrushAllowNoneFree,
+        AcceptAnyFree:           sc.BrushAcceptAnyFree,
+        AllowPaid:               sc.BrushAllowPaid,
+        AllowHr:                 sc.BrushAllowHr,
+        AllowZeroSeeders:        sc.BrushAllowZeroSeeders,
+        Excludes:                sc.BrushExcludes,
+        ExcludeTags:             sc.BrushExcludeTags,
         Now:                     ts,
         SiteName:                siteInstance.GetName(),
-        SiteQuotaLimit:          siteInstance.GetSiteConfig().BrushMaxDiskSizeValue,
+        SiteQuotaLimit:          sc.BrushMaxDiskSizeValue,
+        ScoreVersion:            sc.BrushScoreVersion,
     }
+    if strings.EqualFold(opt.ScoreVersion, "v2") {
+        opt.ScoreV2 = &BrushScoreV2Params{
+            DemandAlpha:  sc.BrushScoreDemandAlpha,
+            DemandMax:    sc.BrushScoreDemandMax,
+            AgeT0Seconds: sc.BrushScoreAgeT0Seconds,
+            AgeTauSeconds: sc.BrushScoreAgeTauSeconds,
+            AgeTauStrictSeconds: sc.BrushScoreAgeTauStrictSeconds,
+
+            SizeBpSmallGiB:    sc.BrushScoreSizeBpSmallGiB,
+            SizeBpIdealMinGiB: sc.BrushScoreSizeBpIdealMinGiB,
+            SizeBpIdealMaxGiB: sc.BrushScoreSizeBpIdealMaxGiB,
+            SizeBpMedMaxGiB:   sc.BrushScoreSizeBpMedMaxGiB,
+            SizeBpLargeMaxGiB: sc.BrushScoreSizeBpLargeMaxGiB,
+            SizeScoreTiny:     sc.BrushScoreSizeScoreTiny,
+            SizeScoreIdeal:    sc.BrushScoreSizeScoreIdeal,
+            SizeScoreMed:      sc.BrushScoreSizeScoreMed,
+            SizeScoreLarge:    sc.BrushScoreSizeScoreLarge,
+            SizeScoreHuge:     sc.BrushScoreSizeScoreHuge,
+
+            HugeLBoost1: sc.BrushScoreHugeLBoost1,
+            HugeLBoost2: sc.BrushScoreHugeLBoost2,
+            HugeLBoost3: sc.BrushScoreHugeLBoost3,
+            HugeBoost1:  sc.BrushScoreHugeBoost1,
+            HugeBoost2:  sc.BrushScoreHugeBoost2,
+            HugeBoost3:  sc.BrushScoreHugeBoost3,
+
+            DiscountWindowSeconds: sc.BrushScoreDiscountWindowSeconds,
+            NonfreePenalty:        sc.BrushScoreNonfreePenalty,
+            SnatchK:               sc.BrushScoreSnatchK,
+            SnatchAdd:             sc.BrushScoreSnatchAdd,
+            WDemand:               sc.BrushScoreWeightsDemand,
+            WAge:                  sc.BrushScoreWeightsAge,
+            WSize:                 sc.BrushScoreWeightsSize,
+            WDiscount:             sc.BrushScoreWeightsDiscount,
+        }
+    }
+    return opt
 }
 
 func GetBrushClientOptions(clientInstance client.Client) *BrushClientOptionStruct {
