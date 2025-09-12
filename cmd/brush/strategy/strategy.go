@@ -831,6 +831,20 @@ func rateSiteTorrentV2(siteTorrent *site.Torrent, siteOption *BrushSiteOptionStr
         return rateSiteTorrentV1(siteTorrent, siteOption)
     }
 
+    // Exclude neutral/no-traffic torrents explicitly in v2
+    if siteTorrent.Neutral {
+        score = 0
+        note = "neutral/no-traffic"
+        return
+    }
+
+    // In some NexusPHP-like sites, UploadMultiplier may be left as zero-value (unknown)
+    // for ordinary free/normal torrents. Treat it as 1x here to avoid false negatives
+    // in v2 hard filters and keep legacy v1 behavior untouched.
+    if siteTorrent.UploadMultiplier == 0 {
+        siteTorrent.UploadMultiplier = 1
+    }
+
     // 1) 硬过滤（保守安全）
     if siteTorrent.IsActive || siteTorrent.UploadMultiplier == 0 ||
         (!siteOption.AllowHr && siteTorrent.HasHnR) ||
